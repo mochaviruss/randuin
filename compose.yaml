@@ -1,0 +1,53 @@
+# compose.yaml de la defensa de EP2 - Randuin, Equipo 07.
+# Se levanta con dos comandos, desde esta carpeta:
+#   docker compose -p equipo07 pull
+#   docker compose -p equipo07 up -d
+# y despues http://localhost:8080
+#
+# Reglas que cumple (enunciado, seccion 2.3):
+#   - Solo descarga imagenes (image: ghcr.io/mochaviruss/<servicio>:ep2), ningun build:.
+#   - Imagenes publicas en GHCR, construidas por el pipeline para linux/amd64.
+#   - Menos de 2 GB sumando todas las imagenes (bases slim/alpine, XGBoost solo CPU, sin PyTorch).
+#   - Sin bind mounts: el modelo va dentro de la imagen de IA y los datos tratados dentro de la de carga.
+#     Lo que persiste va en un volumen con nombre (datos-db).
+#   - Solo el gateway publica puerto (8080).
+#   - healthcheck en cada servicio propio y depends_on con service_healthy donde hace falta.
+#   - Limites cpus y mem_limit en cada servicio (capitulo 7.2): mem_limit = maximo medido bajo carga x 1,5,
+#     redondeado a 16 MiB, minimo 64 MiB; cpus = maximo medido x 1,5, redondeado a 0,25 (ia: una replica
+#     debe poder con todo el peak sola). Se remiden con scripts/medir-consumo.ps1 (docker stats).
+#   - Nada secreto: los valores por defecto sirven tal cual; para cambiarlos, copiar .env.example a .env.
+
+#
+# VERSION DEL AVANCE (8 de octubre): gateway + ia. La sube Ian en feat/gateway-balanceo.
+# El compose final, con los seis servicios, llega con el front (Ian, feat/front-formulario).
+
+services:
+  # La unica puerta. Resuelve los nombres en cada peticion, asi que no necesita esperar a nadie.
+  gateway:
+    image: ghcr.io/mochaviruss/gateway:ep2
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    cpus: 0.25
+    mem_limit: 64m
+    restart: unless-stopped
+
+  # Motor de Inferencia: 2 replicas. El gateway reparte las peticiones entre ellas.
+  ia:
+    image: ghcr.io/mochaviruss/ia:ep2
+    deploy:
+      replicas: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    cpus: 0.5
+    mem_limit: 272m
+    restart: unless-stopped
