@@ -1,0 +1,15 @@
+# Salidas que genera datos/preparar.py (el pipeline las vuelve a generar en cada ejecucion)
+ia/modelo/
+carga-datos/tratados/
+datos/salida/
+
+# Nada secreto en el repo
+.env
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

@@ -1,0 +1,5 @@
+# Todo el texto con fin de linea LF, aunque se edite en Windows: los scripts y configuraciones
+# se ejecutan dentro de contenedores Linux, y un CRLF rompe nginx.conf o un script de shell.
+* text=auto eol=lf
+*.png binary
+*.ubj binary
