@@ -18,7 +18,7 @@
 #   - Nada secreto: los valores por defecto sirven tal cual; para cambiarlos, copiar .env.example a .env.
 
 #
-# VERSION DEL AVANCE (8 de octubre): gateway + ia. La sube Ian en feat/gateway-balanceo.
+# VERSION AVANCE: gateway + ia.
 # El compose final, con los seis servicios, llega con el front (Ian, feat/front-formulario).
 
 services:
