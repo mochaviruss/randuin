@@ -1,0 +1,136 @@
+# Pipeline del Motor de Inferencia (servicio-ia), patron de la guia del curso (EP2, secciones 2.2 y 2.5).
+#
+#   Pull request a dev o main -> datos + entrenamiento + compuerta + tests + build + prueba de humo (NO publica)
+#   Push a main (merge de dev) -> lo mismo y publica en GHCR: ghcr.io/<cuenta>/servicio-ia:sha-xxxxxxx y :latest
+#   Tag ep2                    -> NO reentrena: pone ep2 a la MISMA imagen sha-xxxxxxx ya probada en main
+#
+# TensorFlow se instala SOLO en este job (tensorflow-cpu, sin CUDA). La imagen no lo lleva: sirve con onnxruntime.
+# El modelo no se commitea: main esta protegida y el modelo viaja dentro de la imagen (y como artifact del job).
+name: servicio-ia
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [main]
+    tags: [ep2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write     # para publicar la imagen en GHCR
+
+jobs:
+  entrenar-probar-publicar:
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dependencias de entrenamiento (TensorFlow solo CPU, sin CUDA)
+        run: pip install -r datos/requirements.txt -r servicio-ia/requirements-tensorflow.txt
+
+      - name: Datos - validar, perfilar, limpiar e integrar (datos/preparar.py)
+        run: |
+          python datos/preparar.py
+          python -m pytest -q datos/tests
+
+      - name: Entrenar + verificar ONNX + compuerta de calidad
+        # Si la PR-AUC en la prueba fija baja de 0,80, el recall baja de 0,70 o el candidato es peor que el
+        # modelo vigente (servicio-ia/modelo_vigente.json), entrenar.py sale con codigo 1 y aqui se detiene todo.
+        run: |
+          python servicio-ia/entrenar.py --pr-auc-minimo 0.80 \
+            --version "1.0.${{ github.run_number }}-tf-${GITHUB_SHA::7}"
+
+      - name: Tests del servicio (con el modelo recien entrenado)
+        working-directory: servicio-ia
+        run: python -m pytest -q tests
+
+      - name: Guardar el modelo y el reporte de datos (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelo-servicio-ia
+          path: |
+            servicio-ia/model/
+            datos/salida/reporte.md
+          retention-days: 14
+
+      - name: Nombre de la imagen (GHCR exige minusculas)
+        run: echo "IMAGEN=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/servicio-ia" >> "$GITHUB_ENV"
+
+      - name: Tags y etiquetas (incluye org.opencontainers.image.revision)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGEN }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: servicio-ia
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            servicio-ia:ci
+            ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: REVISION=${{ github.sha }}
+
+      - name: Prueba de humo del contenedor (health + predict + tamano < 1 GB)
+        run: |
+          docker run -d --name ia -p 8000:8000 servicio-ia:ci
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 2; done
+          echo
+          curl -sf localhost:8000/health
+          echo
+          curl -sf -X POST localhost:8000/predict -H "Content-Type: application/json" \
+            -d '{"monto_usd":52,"hora_local":3,"intentos_previos_1h":5,"dispositivo_usuarios_distintos":4,"sin_dispositivo":false,"pais_extranjero":true,"canal":"web"}'
+          echo
+          BYTES=$(docker image inspect servicio-ia:ci --format '{{.Size}}')
+          echo "Tamano de la imagen: $((BYTES / 1024 / 1024)) MB"
+          if [ "$BYTES" -gt 1073741824 ]; then echo "::error::La imagen supera 1 GB"; exit 1; fi
+          echo "revision: $(docker image inspect servicio-ia:ci --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          docker rm -f ia
+
+      - name: Login a GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar en GHCR (solo push a main)
+        if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $TAGS; do docker push "$tag"; done
+
+  # Tag ep2: no reconstruye ni reentrena. Copia el tag ep2 sobre la imagen sha-xxxxxxx de ese commit,
+  # asi lo que corre en la defensa es exactamente lo que ya se probo en main.
+  publicar-ep2:
+    if: github.ref == 'refs/tags/ep2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Etiquetar ep2
+        run: |
+          IMAGEN="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/servicio-ia"
+          docker buildx imagetools create -t "$IMAGEN:ep2" "$IMAGEN:sha-${GITHUB_SHA::7}"
