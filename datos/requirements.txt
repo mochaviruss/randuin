@@ -1,0 +1,5 @@
+# Tratamiento de datos (corre en el pipeline antes de entrenar). Mismas versiones que la imagen de IA
+# (servicio-ia/requirements.txt), para que el pipeline las pueda instalar juntas sin conflictos.
+pandas==3.0.5
+numpy==2.5.3
+pytest==8.4.2
