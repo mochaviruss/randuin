@@ -1,0 +1,16 @@
+{
+  "version": "xgb-v1",
+  "descripcion": "Modelo en produccion (campeon): el XGBoost de la EP1. Todo candidato se compara contra estas metricas, medidas sobre datos/conjunto_prueba.csv (el 25% mas reciente de lo etiquetado) con umbral 0,30: no puede dejar pasar mas fraude ni generar mas falsos positivos (tolerancia 0,025). La red de TensorFlow de la EP2 se compara contra el. Cuando un candidato mejor se publica, se actualiza este archivo en un PR aprobado por Riesgo.",
+  "algoritmo": "XGBoost 2.1.4 (XGBClassifier {\"n_estimators\": 200, \"max_depth\": 3, \"learning_rate\": 0.05, \"random_state\": 42, \"n_jobs\": 1, \"eval_metric\": \"logloss\"})",
+  "aprobado_por": "ibravo",
+  "fecha": "2026-10-02",
+  "metricas": {
+    "recall_fraude": 0.933,
+    "precision_fraude": 0.894,
+    "tasa_falsos_positivos": 0.0196,
+    "roc_auc": 0.9981,
+    "fraude_no_detectado": 3,
+    "falsos_positivos": 5,
+    "costo_errores_usd": 205.6
+  }
+}

@@ -1,7 +1,9 @@
-# Salidas que genera datos/preparar.py (el pipeline las vuelve a generar en cada ejecucion)
-ia/modelo/
+# Salidas que generan datos/preparar.py y servicio-ia/entrenar.py (el pipeline las vuelve a generar en
+# cada ejecucion). Un modelo subido a mano sin el script que lo produce no cumple (EP2, 2.2).
 carga-datos/tratados/
 datos/salida/
+servicio-ia/model/*
+!servicio-ia/model/.gitkeep
 
 # Nada secreto en el repo
 .env

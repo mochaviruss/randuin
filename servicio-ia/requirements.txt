@@ -1,0 +1,12 @@
+# Dependencias de la IMAGEN (runtime). Aqui NO van TensorFlow ni PyTorch: el modelo llega exportado
+# a ONNX y lo ejecuta onnxruntime. scikit-learn queda fijo porque preprocesador.joblib solo se carga
+# bien con la misma version con que se creo (entrenar.py la anota en metadata.json).
+fastapi==0.142.2
+uvicorn==0.53.0
+pydantic==2.13.5
+onnxruntime==1.30.0
+scikit-learn==1.9.1
+pandas==3.0.5
+numpy==2.5.3
+joblib==1.6.0
+prometheus-client==0.26.0
