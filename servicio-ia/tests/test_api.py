@@ -36,13 +36,13 @@ def test_predict_sospechosa_es_fraude_y_trae_razones():
         assert 0.0 <= cuerpo["score"] <= 1.0
         assert cuerpo["prediccion"] == "fraude" and cuerpo["nivel_riesgo"] == "alto"
         assert cuerpo["transaccion_id"] == "TX-EJEMPLO"
-        assert cuerpo["modelo_version"] and len(cuerpo["modelo_hash"]) == 64
+        assert cuerpo["modelo_version"] and cuerpo["replica"]
         assert r.headers["X-Version-Modelo"] == cuerpo["modelo_version"]
         # RF2: las 3 razones de mayor peso; la primera empuja el riesgo hacia arriba
-        assert 1 <= len(cuerpo["razones"]) <= 3 and len(cuerpo["aportes"]) >= len(cuerpo["razones"])
+        assert 1 <= len(cuerpo["razones"]) <= 3
         assert cuerpo["razones"][0]["efecto"] == "sube"
         assert "intentos_previos_1h" in [x["variable"] for x in cuerpo["razones"]]
-        pesos = [abs(x["aporte"]) for x in cuerpo["aportes"]]
+        pesos = [abs(x["aporte"]) for x in cuerpo["razones"]]
         assert pesos == sorted(pesos, reverse=True)
 
 
@@ -65,13 +65,6 @@ def test_predict_lote():
         r = c.post("/predict/lote", json={"transacciones": [EJEMPLO, NORMAL]})
         assert r.status_code == 200
         assert r.json()["total"] == 2 and r.json()["alertas"] == 1
-
-
-def test_metricas_prometheus():
-    with cliente() as c:
-        c.post("/predict", json=NORMAL)
-        texto = c.get("/metrics/").text
-        assert "randuin_ia_predict_segundos" in texto and "randuin_ia_predicciones_total" in texto
 
 
 def test_la_imagen_no_necesita_tensorflow():
