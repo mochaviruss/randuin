@@ -1,0 +1,25 @@
+flowchart LR
+  classDef persona fill:#08427b,stroke:#052e56,color:#fff
+  classDef sistema fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef externo fill:#999,stroke:#6b6b6b,color:#fff
+
+  riesgo(["<b>Gerencia de Riesgo</b>"]):::persona
+  analistas(["<b>Analistas de fraude</b>"]):::persona
+  auditor(["<b>Auditor externo / CMF</b>"]):::persona
+  core["<b>Core de Pagos</b><br/>Kotlin, cuenta PCI"]:::externo
+  R["<b>Randuin</b>"]:::sistema
+  legacy["<b>Motor de Reglas Legacy</b><br/>Java"]:::externo
+  herr["<b>Herramienta de analistas</b>"]:::externo
+  dw[("<b>Data Warehouse</b><br/>Redshift")]:::externo
+  bureau["<b>Bureau de Identidad</b>"]:::externo
+  sanc["<b>Listas de Sanciones</b>"]:::externo
+
+  core -->|"HTTPS/JSON síncrono · p99 < 100 ms, tope 150 ms (RT3) · sin PAN (RT4)"| R
+  riesgo -->|"HTTPS/JSON · umbrales con quién y motivo (RO5)"| R
+  auditor -->|"HTTPS/JSON · por transaccion_id, < 1 h"| R
+  sanc -->|"CSV diario (RT6)"| R
+  R -->|"API REST/JSON · razones < 5 s (RNF6)"| herr
+  analistas -->|"web interna"| herr
+  R -->|"COPY SQL nocturno (RT7)"| dw
+  R -.->|"HTTPS/REST · 900 ms · solo casos puntuales (RT5)"| bureau
+  core -.->|"HTTP/JSON interno · sombra y reserva (RNF3, RO6)"| legacy

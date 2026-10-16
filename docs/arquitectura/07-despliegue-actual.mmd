@@ -1,0 +1,26 @@
+flowchart LR
+  classDef cont fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef db fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef ext fill:#999,stroke:#6b6b6b,color:#fff
+  ghcr[("<b>GHCR</b><br/>imágenes públicas :ep2<br/>del pipeline")]:::ext
+  subgraph PC["Computador de la sala · Windows + Docker Desktop (linux/amd64)"]
+    nav["Navegador<br/>http://localhost:8080"]
+    cli["PowerShell<br/>docker compose -p equipo07 pull / up -d"]
+    subgraph RED["Docker Engine · red interna equipo07_default"]
+      gw["<b>gateway</b><br/>gateway:ep2 · 0,5 CPU · 128 MiB<br/><b>único puerto: 0.0.0.0:8080</b>"]:::cont
+      fr["<b>front</b><br/>front:ep2 · 0,25 CPU · 64 MiB"]:::cont
+      dom["<b>dominio</b><br/>dominio:ep2 · 0,5 CPU · 160 MiB"]:::cont
+      ia1["<b>ia réplica 1</b> (equipo07-ia-1)<br/>servicio-ia:ep2 · 1 CPU · 320 MiB"]:::cont
+      ia2["<b>ia réplica 2</b> (equipo07-ia-2)<br/>servicio-ia:ep2 · 1 CPU · 320 MiB"]:::cont
+      pg[("<b>postgres</b><br/>postgres:16-alpine · 0,25 CPU · 192 MiB<br/>volumen con nombre datos-db")]:::db
+      cg["<b>carga-datos</b><br/>carga-datos:ep2 · 0,5 CPU · 96 MiB<br/>restart no: corre una vez (Exited 0)"]:::cont
+    end
+  end
+  cli -->|pull| ghcr
+  nav -->|":8080"| gw
+  gw -->|"/"| fr
+  gw -->|"/api/decision/*"| dom
+  gw -->|"/api/ia/* round robin"| ia1 & ia2
+  dom -->|"POST /api/ia/predict + API key"| gw
+  dom -->|"SQL :5432"| pg
+  cg -->|"SQL :5432, una vez"| pg

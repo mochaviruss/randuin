@@ -1,0 +1,28 @@
+sequenceDiagram
+  actor U as Analista (front)
+  participant G as gateway
+  participant D as dominio
+  participant P as postgres
+  participant I as ia (2 réplicas)
+
+  U->>G: POST /api/decision/evaluar
+  G->>D: POST /evaluar
+  D->>P: usuario, umbrales, lista negra, intentos 1 h
+  P-->>D: datos de contexto
+  alt en lista negra (RF4, RF8)
+    D->>D: bloquear sin llamar al modelo
+  else sin coincidencia
+    D->>G: POST /api/ia/predict + X-API-Key (tope 100 ms)
+    alt alguna réplica responde a tiempo
+      G->>I: POST /predict (round robin: 1, 2, 1, 2...)
+      I-->>G: score, 3 razones, versión
+      G-->>D: 200 + predicción
+      D->>D: umbrales 0,30 / 0,70 → decisión
+    else ninguna réplica responde o pasan 100 ms (RNF3)
+      G-->>D: 502 "ia no responde" (o se corta a los 100 ms)
+      D->>D: política de reserva
+    end
+  end
+  D->>P: INSERT predicciones (entrada, resultado, versión, fecha)
+  D-->>G: decisión, score, razones, versión
+  G-->>U: 200 JSON
