@@ -1,6 +1,7 @@
-# Gateway: nginx oficial, version estable, variante alpine (imagen de ~50 MB).
-FROM nginx:1.28-alpine
-COPY nginx.conf /etc/nginx/nginx.conf
+# Gateway Node, igual que en el laboratorio L6: solo el modulo http de Node, sin dependencias.
+FROM node:22-alpine
+WORKDIR /app
+COPY server.js .
+USER node
 EXPOSE 8080
-# Valida la configuracion al construir: si el nginx.conf tiene un error, el pipeline falla aqui.
-RUN nginx -t
+CMD ["node", "server.js"]
