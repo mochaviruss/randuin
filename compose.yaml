@@ -1,55 +1,121 @@
 # compose.yaml de la defensa de EP2 - Randuin, Equipo 07.
-# Se levanta con dos comandos, desde esta carpeta:
+# Se levanta con dos comandos, desde esta carpeta (enunciado 2.3, regla 9):
 #   docker compose -p equipo07 pull
 #   docker compose -p equipo07 up -d
-# y despues http://localhost:8080
+# y despues http://localhost:8080 en el navegador.
 #
-# Reglas que cumple (enunciado, seccion 2.3):
-#   - Solo descarga imagenes (image: ghcr.io/mochaviruss/<servicio>:ep2), ningun build:.
-#   - Imagenes publicas en GHCR, construidas por el pipeline para linux/amd64.
-#   - Menos de 2 GB sumando todas las imagenes (bases slim/alpine; la red se entrena con TensorFlow en el
-#     pipeline y se sirve en ONNX con onnxruntime: la imagen de ia no lleva TensorFlow ni CUDA).
-#   - Sin bind mounts: el modelo va dentro de la imagen de IA y los datos tratados dentro de la de carga.
-#     Lo que persiste va en un volumen con nombre (datos-db).
-#   - Solo el gateway publica puerto (8080).
-#   - healthcheck en cada servicio propio y depends_on con service_healthy donde hace falta.
-#   - Limites cpus y mem_limit en cada servicio (capitulo 7.2): mem_limit = maximo medido bajo carga x 1,5,
-#     redondeado a 16 MiB, minimo 64 MiB; cpus = maximo medido x 1,5, redondeado a 0,25 (ia: una replica
-#     debe poder con todo el peak sola). Se remiden con scripts/medir-consumo.ps1 (docker stats).
-#   - Nada secreto: los valores por defecto sirven tal cual; para cambiarlos, copiar .env.example a .env.
-
-#
-# VERSION DEL AVANCE (8 de octubre): gateway + ia (servicio-ia). El compose final, con los seis
-# servicios, llega con el front (Ian, feat/front-formulario).
+# Reglas que cumple (enunciado 2.3):
+#   1. Solo descarga imagenes (ghcr.io/mochaviruss/<servicio>:ep2): ningun build:.
+#   2. Imagenes publicas en GHCR, construidas por el pipeline para linux/amd64.
+#   3. Sin bind mounts: el modelo va dentro de la imagen de ia y los datos tratados dentro de la de carga-datos.
+#      Lo unico que persiste es la base, en el volumen con nombre datos-db.
+#   4. Solo el gateway publica puerto (8080).
+#   5. healthcheck en cada servicio propio y depends_on con condition cuando uno no puede arrancar sin otro.
+#   6. cpus y mem_limit en cada servicio propio (capitulo 7.2): pico medido bajo carga x 1,5 (50 % de margen, D8),
+#      cpus redondeado hacia arriba a 0,25 y mem_limit a multiplos de 32 MiB (minimo 64 MiB). Se remiden con scripts/carga.ps1 +
+#      docker stats. Postgres: no menos que sus shared_buffers (128 MiB) mas sus procesos.
+#   7. Menos de 2 GB sumando las imagenes: bases slim/alpine; la imagen de ia no lleva TensorFlow ni CUDA.
+#   8. Nada secreto: los valores por defecto son de ejemplo y sirven tal cual (ver .env.example).
 
 services:
-  # La unica puerta. Resuelve los nombres en cada peticion, asi que no necesita esperar a nadie.
+
+  # La unica puerta (Node, como en el L6). Enruta / al front, /api/decision al dominio y /api/ia a las 2 replicas.
   gateway:
     image: ghcr.io/mochaviruss/gateway:ep2
     ports:
       - "8080:8080"
+    environment:
+      API_KEY: ${API_KEY:-randuin-local}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
       interval: 10s
       timeout: 3s
       retries: 3
-      start_period: 5s
+    cpus: 0.5
+    mem_limit: 128m
+    restart: unless-stopped
+
+  # Pagina HTML con el formulario. Llama a /api/decision/... a traves del gateway.
+  front:
+    image: ghcr.io/mochaviruss/front:ep2
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
     cpus: 0.25
     mem_limit: 64m
     restart: unless-stopped
 
-  # Motor de Inferencia (carpeta servicio-ia, workflow servicio-ia.yml): 2 replicas. El gateway reparte
-  # las peticiones entre ellas. Red entrenada con TensorFlow, servida en ONNX (onnxruntime).
+  # Microservicio de dominio: la unica pieza que lee y escribe la base. Llama al modelo por el gateway.
+  # Arranca cuando la base esta sana y la carga de datos termino bien.
+  dominio:
+    image: ghcr.io/mochaviruss/dominio:ep2
+    environment:
+      DB_URL: postgresql://${POSTGRES_USER:-randuin}:${POSTGRES_PASSWORD:-randuin_local}@postgres:5432/${POSTGRES_DB:-randuin}
+      IA_URL: http://gateway:8080/api/ia
+      API_KEY: ${API_KEY:-randuin-local}
+      IA_TIMEOUT_MS: ${IA_TIMEOUT_MS:-100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      carga-datos:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    cpus: 0.5
+    mem_limit: 160m
+    restart: unless-stopped
+
+  # Microservicio de IA: la red (TensorFlow -> ONNX) va dentro de la imagen. 2 replicas: el gateway las reparte.
   ia:
     image: ghcr.io/mochaviruss/servicio-ia:ep2
     deploy:
       replicas: 2
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 20s
-    cpus: 0.5
-    mem_limit: 352m
+    cpus: 1.0
+    mem_limit: 320m
     restart: unless-stopped
+
+  # Base de datos: imagen oficial y volumen con nombre (los datos sobreviven a un down sin -v).
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-randuin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-randuin_local}
+      POSTGRES_DB: ${POSTGRES_DB:-randuin}
+    volumes:
+      - datos-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    cpus: 0.25
+    mem_limit: 192m
+    restart: unless-stopped
+
+  # Carga de datos: corre UNA vez (crea las tablas, inserta los CSV tratados sin duplicar) y termina con codigo 0.
+  # No lleva healthcheck porque no queda corriendo: su senal es "terminado bien" (service_completed_successfully).
+  carga-datos:
+    image: ghcr.io/mochaviruss/carga-datos:ep2
+    environment:
+      DB_URL: postgresql://${POSTGRES_USER:-randuin}:${POSTGRES_PASSWORD:-randuin_local}@postgres:5432/${POSTGRES_DB:-randuin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cpus: 0.5
+    mem_limit: 96m
+    restart: "no"
+
+volumes:
+  datos-db:

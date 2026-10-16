@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Randuin · Kipu Pagos</title>
+<!-- Front de Randuin: una pagina HTML con JavaScript, sin dependencias.
+     Todo lo pide con rutas relativas (/api/decision/...), asi pasa siempre por el gateway. -->
+<style>
+  body { font-family: system-ui, "Segoe UI", Arial, sans-serif; margin: 0; background: #f4f5f7; color: #1d2330; }
+  header { background: #1f3b73; color: #fff; padding: 14px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header small { opacity: .8; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  section { background: #fff; border: 1px solid #dfe2e7; border-radius: 8px; padding: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  label { display: block; font-size: 13px; margin-bottom: 8px; }
+  input, select { width: 100%; padding: 6px; margin-top: 3px; box-sizing: border-box; }
+  button { padding: 7px 12px; margin: 4px 4px 4px 0; cursor: pointer; }
+  .principal { background: #1f3b73; color: #fff; border: none; border-radius: 4px; font-weight: bold; }
+  .decision { font-size: 26px; font-weight: bold; text-transform: uppercase; padding: 6px 14px; border-radius: 6px; display: inline-block; }
+  .aprobar { background: #e3f4ea; color: #16834a; } .revisar { background: #fdf1dc; color: #a86400; }
+  .bloquear { background: #fbe4e5; color: #c0262d; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px; border-bottom: 1px solid #eee; }
+  .ancho { grid-column: 1 / -1; }
+  .error { color: #c0262d; }
+  .gris { color: #5d6675; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Randuin <small>· detección de fraude · Kipu Pagos</small></h1>
+  <small id="estado">consultando servicios…</small>
+</header>
+
+<main>
+  <section>
+    <h2>Evaluar una transacción</h2>
+    <div>
+      <button type="button" onclick="ejemplo('normal')">Compra normal</button>
+      <button type="button" onclick="ejemplo('sospechosa')">Sospechosa</button>
+      <button type="button" onclick="ejemplo('lista_negra')">En lista negra</button>
+    </div>
+    <form id="formulario">
+      <label>Usuario <input name="usuario_id" required></label>
+      <label>Dispositivo <input name="dispositivo_id" placeholder="vacío = sin dispositivo"></label>
+      <label>Comercio <input name="comercio_id"></label>
+      <label>Monto <input name="monto" type="number" step="0.01" min="0.01" required></label>
+      <label>Moneda <select name="moneda"><option>CLP</option><option>USD</option></select></label>
+      <label>Canal <select name="canal"><option>app</option><option>web</option><option>pos</option><option>api</option></select></label>
+      <label>País (código de 2 letras) <input name="pais_transaccion" value="CL" maxlength="2"></label>
+      <label>Fecha y hora (vacío = ahora) <input name="fecha_hora" type="datetime-local"></label>
+      <button class="principal" type="submit">Evaluar</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Resultado</h2>
+    <div id="resultado" class="gris">Todavía no se evalúa ninguna transacción.</div>
+  </section>
+
+  <section class="ancho">
+    <h2>Últimas decisiones (guardadas en la base)</h2>
+    <table>
+      <thead><tr><th>Transacción</th><th>Fecha</th><th>Usuario</th><th>Monto USD</th><th>Decisión</th>
+        <th>Origen</th><th>Probabilidad</th><th>Modelo</th><th>Réplica de IA</th></tr></thead>
+      <tbody id="historial"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const formulario = document.getElementById('formulario');
+let ejemplos = {};
+
+async function pedir(ruta, opciones) {
+  const r = await fetch(ruta, opciones);
+  const cuerpo = await r.json();
+  if (!r.ok) throw new Error(cuerpo.detail ? JSON.stringify(cuerpo.detail) : (cuerpo.error || r.status));
+  return cuerpo;
+}
+
+async function revisarEstado() {
+  const partes = [];
+  try { await pedir('/api/decision/health'); partes.push('dominio ✔'); } catch { partes.push('dominio ✘'); }
+  try { const ia = await pedir('/api/ia/health'); partes.push(`IA ✔ (${ia.modelo_version})`); } catch { partes.push('IA ✘'); }
+  document.getElementById('estado').textContent = partes.join(' · ');
+}
+
+async function cargarEjemplos() {
+  try { ejemplos = await pedir('/api/decision/ejemplos'); } catch { ejemplos = {}; }
+}
+
+function ejemplo(tipo) {
+  const n = ejemplos.normal || {};
+  const datos = {
+    normal: { usuario_id: n.usuario_id, dispositivo_id: n.dispositivo_id, comercio_id: n.comercio_id,
+              monto: 12000, moneda: 'CLP', canal: 'app', pais_transaccion: 'CL', fecha_hora: '' },
+    sospechosa: { usuario_id: n.usuario_id, dispositivo_id: (ejemplos.dispositivo_compartido || {}).dispositivo_id,
+                  comercio_id: n.comercio_id, monto: 180, moneda: 'USD', canal: 'web', pais_transaccion: 'NG',
+                  fecha_hora: new Date().toISOString().slice(0, 10) + 'T03:10' },
+    lista_negra: { usuario_id: n.usuario_id, dispositivo_id: (ejemplos.lista_negra || {}).dispositivo_id,
+                   comercio_id: n.comercio_id, monto: 25000, moneda: 'CLP', canal: 'app', pais_transaccion: 'CL', fecha_hora: '' },
+  }[tipo];
+  for (const [campo, valor] of Object.entries(datos)) formulario.elements[campo].value = valor ?? '';
+}
+
+formulario.addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+  const datos = Object.fromEntries(new FormData(formulario));
+  datos.monto = Number(datos.monto);
+  for (const campo of ['dispositivo_id', 'comercio_id', 'fecha_hora']) if (!datos[campo]) delete datos[campo];
+  const caja = document.getElementById('resultado');
+  caja.textContent = 'Evaluando…';
+  try {
+    const r = await pedir('/api/decision/evaluar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
+    const razones = r.razones.map(x => `<li>${x.condicion}</li>`).join('') || '<li>sin razones destacadas</li>';
+    caja.innerHTML = `
+      <div class="decision ${r.decision}">${r.decision}</div>
+      <p>Probabilidad de fraude: <b>${r.score === null ? '—' : (r.score * 100).toFixed(1) + ' %'}</b>
+         · umbrales: revisar ${r.umbrales.revisar}, bloquear ${r.umbrales.bloquear}</p>
+      <p class="gris">Origen: ${r.origen === 'reserva' ? '<b class="error">política de reserva (el modelo no respondió)</b>' : r.origen}
+         · modelo ${r.modelo_version || '—'} · réplica ${r.replica_ia || '—'} · ${r.latencia_ms} ms · ${r.transaccion_id}</p>
+      <b>Razones</b><ul>${razones}</ul>`;
+  } catch (error) {
+    caja.innerHTML = `<p class="error">No se pudo evaluar: ${error.message}</p>`;
+  }
+  cargarHistorial();
+});
+
+async function cargarHistorial() {
+  try {
+    const filas = await pedir('/api/decision/predicciones?limite=10');
+    document.getElementById('historial').innerHTML = filas.map(p => `<tr>
+      <td>${p.transaccion_id}</td><td>${new Date(p.creado_en).toLocaleString('es-CL')}</td><td>${p.usuario_id}</td>
+      <td>${p.monto_usd}</td><td><span class="${p.decision}">${p.decision}</span></td><td>${p.origen}</td>
+      <td>${p.score ?? '—'}</td><td>${p.modelo_version ?? '—'}</td><td>${p.replica_ia ?? '—'}</td></tr>`).join('');
+  } catch (error) {
+    document.getElementById('historial').innerHTML = `<tr><td colspan="9" class="error">${error.message}</td></tr>`;
+  }
+}
+
+revisarEstado();
+cargarEjemplos().then(() => ejemplo('normal'));
+cargarHistorial();
+</script>
+</body>
+</html>
