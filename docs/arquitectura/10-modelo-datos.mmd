@@ -1,0 +1,62 @@
+erDiagram
+  usuarios {
+    text usuario_id PK
+    date fecha_registro
+    char pais
+    text segmento
+    smallint nivel_kyc
+    boolean verificado
+    boolean email_desechable
+  }
+  dispositivos {
+    text dispositivo_id PK
+    text tipo
+    integer usuarios_distintos
+    boolean emulador
+  }
+  transacciones {
+    text transaccion_id PK
+    text usuario_id FK
+    text dispositivo_id "sin FK"
+    timestamptz ts_utc
+    numeric monto_usd
+    text canal
+    integer intentos_previos_1h
+    smallint es_fraude "NULL = no revisada"
+  }
+  umbrales {
+    serial version PK
+    numeric umbral_revisar
+    numeric umbral_bloquear
+    text autorizado_por "quién"
+    timestamptz creado_en "cuándo"
+    text motivo "por qué"
+  }
+  predicciones {
+    bigserial id PK
+    text transaccion_id UK
+    timestamptz creado_en "fecha"
+    text usuario_id FK
+    numeric monto_usd
+    jsonb entrada "lo que llegó"
+    jsonb variables "lo que vio el modelo"
+    numeric score
+    text decision "aprobar, revisar, bloquear"
+    text origen "modelo, lista_negra, reserva"
+    jsonb razones
+    text modelo_version
+    integer umbral_version FK
+    text replica_ia
+    numeric latencia_ms
+  }
+  lista_negra {
+    text entrada_id PK
+    text tipo "dispositivo, ip, comercio, tarjeta"
+    text valor "UNIQUE con tipo"
+    text motivo
+    boolean vigente
+  }
+  umbrales ||--o{ predicciones : "versión aplicada"
+  usuarios ||--o{ predicciones : "se evalúa"
+  usuarios ||--o{ transacciones : "hace"
+  dispositivos |o..o{ transacciones : "se usa en"

@@ -1,0 +1,23 @@
+flowchart LR
+  classDef persona fill:#08427b,stroke:#052e56,color:#fff
+  classDef cont fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef ext fill:#999,stroke:#6b6b6b,color:#fff
+  usuario(["<b>Analista / Gerencia de Riesgo</b><br/>[Persona] usa el front<br/>desde el navegador"]):::persona
+  core["<b>Core de Pagos</b><br/>[Sistema externo]<br/>en producción"]:::ext
+  subgraph randuin["Randuin · docker compose -p equipo07 · red interna equipo07_default"]
+    gateway["<b>gateway</b><br/>[Contenedor: Node 22-alpine]<br/>única puerta y único puerto<br/>publicado (8080); API key en /api/ia"]:::cont
+    front["<b>front</b><br/>[Contenedor: nginx 1.28-alpine]<br/>página HTML: formulario y<br/>últimas decisiones"]:::cont
+    dominio["<b>dominio</b><br/>[Contenedor: Python 3.12 + FastAPI]<br/>API de Decisión: lista negra, umbrales,<br/>reserva; único que usa la base"]:::cont
+    ia["<b>ia</b> · 2 réplicas<br/>[Contenedor: FastAPI + onnxruntime]<br/>red TensorFlow exportada a ONNX;<br/>score, 3 razones y versión; sin estado"]:::cont
+    postgres[("<b>postgres</b><br/>[Contenedor: PostgreSQL 16-alpine]<br/>6 tablas en el volumen datos-db")]:::cont
+    carga_datos["<b>carga-datos</b><br/>[Contenedor: Python 3.12 + psycopg]<br/>restart no: crea tablas y carga<br/>los CSV tratados una vez"]:::cont
+  end
+  usuario -->|"HTTP :8080<br/>GET / y /api/decision/..."| gateway
+  core -->|"JSON/HTTP :8080<br/>POST /api/decision/evaluar"| gateway
+  gateway -->|"HTTP :80 · GET /"| front
+  gateway -->|"JSON/HTTP :8000<br/>/api/decision/*"| dominio
+  dominio -->|"JSON/HTTP :8080<br/>POST /api/ia/predict<br/>X-API-Key · tope 100 ms"| gateway
+  gateway -->|"JSON/HTTP :8000 · /api/ia/*<br/>round robin entre réplicas"| ia
+  dominio -->|"SQL :5432<br/>consultas + INSERT"| postgres
+  carga_datos -->|"SQL :5432<br/>ON CONFLICT DO NOTHING"| postgres
+  style randuin fill:#ffffff,stroke:#8A8A8A,stroke-dasharray:5 5

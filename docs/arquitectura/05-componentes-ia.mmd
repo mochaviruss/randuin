@@ -1,0 +1,24 @@
+flowchart LR
+  classDef comp fill:#85bbf0,stroke:#5d82a8,color:#000
+  classDef ext fill:#999,stroke:#6b6b6b,color:#fff
+  dominio["<b>dominio</b><br/>[httpx] timeout 100 ms;<br/>si vence, política de reserva"]:::ext
+  gateway["<b>gateway</b><br/>[Node] exige X-API-Key y reparte<br/>/api/ia/* entre las 2 réplicas"]:::ext
+  subgraph ia["ia (servicio-ia) · cada réplica es idéntica y sin estado · Python 3.12 + FastAPI"]
+    ruta["<b>Ruta POST /predict</b><br/>[FastAPI]<br/>orquesta y mide latencia_ms"]:::comp
+    validador["<b>Validación de entrada</b><br/>[Pydantic: Transaccion]<br/>monto mayor que 0, hora 0-23,<br/>canal válido, sin campos extra;<br/>si no: 422"]:::comp
+    vector["<b>Preprocesamiento</b><br/>[preprocesador.joblib]<br/>log del monto, estandarizar,<br/>one-hot del canal"]:::comp
+    inferencia["<b>Inferencia</b><br/>[onnxruntime · modelo.onnx]<br/>red MLP 64-32 entrenada<br/>con TensorFlow → probabilidad"]:::comp
+    explicacion["<b>Razones y respuesta</b><br/>[oclusión]<br/>cada variable a su valor típico:<br/>cuánto cambia el riesgo;<br/>3 razones (RF2) y versión"]:::comp
+    modelo[("<b>Carga del modelo</b><br/>[modelo.onnx + preprocesador.joblib<br/>+ metadata.json] una vez al<br/>arrancar, dentro de la imagen")]:::comp
+    salud["<b>GET /health · /modelo</b><br/>[FastAPI]<br/>503 sin modelo; versión,<br/>réplica y commit"]:::comp
+  end
+  dominio -->|"POST /api/ia/predict"| gateway
+  gateway -->|"POST /predict :8000"| ruta
+  gateway -->|"GET /health"| salud
+  ruta -->|"1. valida el JSON"| validador
+  validador -->|"2. si es válido"| vector
+  vector -->|"3. matriz 8×10<br/>(original + 7 variantes)"| inferencia
+  inferencia -->|"4. 8 probabilidades"| explicacion
+  modelo -.->|"sesión ONNX ya cargada"| inferencia
+  explicacion -->|"5. JSON de respuesta"| ruta
+  style ia fill:#ffffff,stroke:#8A8A8A,stroke-dasharray:5 5
