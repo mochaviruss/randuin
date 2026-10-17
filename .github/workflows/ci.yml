@@ -1,10 +1,10 @@
-# Pipeline de los servicios de Randuin SIN modelo (EP2): front, gateway, dominio y carga-datos.
-# El Motor de Inferencia tiene su propio workflow, servicio-ia.yml (entrena con TensorFlow, compuerta, ONNX).
-# Mismo patron del L4, sin el deploy por SSH. Crece con el repositorio: construye y prueba solo los
-# servicios que ya tienen su Dockerfile (job "piezas"), asi funciona desde el avance hasta el sistema completo.
-#   Pull request hacia dev o main -> tests + tratamiento de datos + build de las imagenes, SIN publicar.
-#   Push a main (merge desde dev) -> lo mismo y ademas publica en GHCR con tags sha-xxxxxxx y latest.
-#   Tag ep2 sobre main            -> pone el tag ep2 a la MISMA imagen ya publicada para ese commit.
+# Pipeline de gateway, front, dominio y carga-datos (enunciado 2.5). Mismo patron del L4, sin el deploy por SSH:
+# primero las pruebas y, solo si pasan (needs:), la construccion y publicacion de las imagenes.
+# El microservicio de IA tiene su propio workflow: servicio-ia.yml.
+#
+#   Pull request hacia dev o main -> pruebas + build de las 4 imagenes, SIN publicar
+#   Push a main (merge desde dev) -> lo mismo y publica en GHCR con los tags sha-xxxxxxx y latest
+#   Tag ep2                       -> lo mismo y publica con el tag ep2 (el que usa el compose.yaml de la defensa)
 name: ci
 
 on:
@@ -18,73 +18,12 @@ permissions:
   contents: read
   packages: write
 
-env:
-  REGISTRO: ghcr.io/${{ github.repository_owner }}
-
 jobs:
-  # 0. Gitflow: a main solo se llega con un PR que venga de dev.
-  origen-del-pr:
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: el PR hacia main debe venir de dev
-        env:
-          RAMA: ${{ github.head_ref }}
-        run: |
-          if [ "$RAMA" != "dev" ]; then
-            echo "::error::Los PR hacia main solo pueden venir de dev (este viene de $RAMA)"
-            exit 1
-          fi
-
-  # Que servicios existen hoy en el repo (carpeta con Dockerfile). El resto de los jobs usa esta lista.
-  piezas:
-    runs-on: ubuntu-latest
-    outputs:
-      servicios: ${{ steps.lista.outputs.servicios }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: lista
-        run: |
-          lista=""
-          for s in front gateway dominio carga-datos; do
-            if [ -f "$s/Dockerfile" ]; then lista="$lista\"$s\","; fi
-          done
-          echo "servicios=[${lista%,}]" >> "$GITHUB_OUTPUT"
-          echo "Servicios en el repo: [${lista%,}]"
-
-  # 1. Tratamiento de datos: deja las tablas tratadas que van dentro de la imagen de carga-datos.
-  #    Si el esquema de los crudos no es el esperado, preparar.py termina con error y aqui se detiene todo.
-  datos:
-    if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r datos/requirements.txt
-      - name: validar, perfilar, limpiar e integrar
-        run: python datos/preparar.py
-      - name: test del tratamiento (sin duplicados ni nulos en columnas clave)
-        run: python -m pytest -q datos/tests
-      - name: test de coherencia (figura 4 = servicios del compose; compose sin build ni puertos extra)
-        if: hashFiles('docs/tests/*.py') != ''
-        run: python -m pytest -q docs/tests
-      - name: guardar las salidas para los jobs siguientes
-        uses: actions/upload-artifact@v4
-        with:
-          name: salidas
-          path: carga-datos/tratados/
-          retention-days: 7
-
-  # 2. Tests de cada servicio, antes de construir. Se levanta un Postgres real (misma imagen del
-  #    compose) para probar que la carga no duplica filas y que las consultas del dominio funcionan.
-  tests:
-    if: github.ref_type != 'tag'
-    needs: datos
+  # 1. Pruebas. Si algo falla, el job termina en rojo y "imagenes" no se ejecuta.
+  pruebas:
     runs-on: ubuntu-latest
     services:
-      postgres:
+      postgres:                       # una base real, la misma imagen del compose
         image: postgres:16-alpine
         env:
           POSTGRES_USER: randuin
@@ -98,93 +37,70 @@ jobs:
       TEST_DB_URL: postgresql://randuin:randuin_local@localhost:5432/randuin_test
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: salidas
-          path: carga-datos/tratados    # el artifact guarda solo el contenido de la carpeta
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: dependencias de los servicios que existen
-        run: |
-          pip install pytest==8.4.2
-          for s in carga-datos dominio; do
-            if [ -f "$s/requirements.txt" ]; then pip install -r "$s/requirements.txt"; fi
-          done
-      # carga-datos: cargar dos veces no duplica filas · dominio: reglas de negocio, reserva, modo sombra
-      # y consultas SQL reales. (Los tests de ia corren en servicio-ia.yml, despues de entrenar.)
-      - name: "tests de cada microservicio (en orden: la carga deja los datos que usa el dominio)"
-        run: |
-          for s in carga-datos dominio; do
-            if [ -d "$s/tests" ]; then
-              echo "::group::tests de $s"
-              python -m pytest -q "$s/tests"
-              echo "::endgroup::"
-            fi
-          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Dependencias
+        run: pip install -r datos/requirements.txt -r carga-datos/requirements.txt -r dominio/requirements.txt
+      - name: Tratamiento de datos (deja las tablas tratadas en carga-datos/tratados)
+        run: python datos/preparar.py
+      - name: "Test del tratamiento: sin duplicados ni nulos en columnas clave"
+        run: python -m pytest -q datos/tests
+      - name: "Test de carga-datos: cargar dos veces no duplica filas"
+        run: python -m pytest -q carga-datos/tests
+      - name: "Test del dominio: reglas, lista negra, reserva y validaciones"
+        run: python -m pytest -q dominio/tests
+      - name: "Test del gateway: rutas y API key"
+        run: node gateway/prueba.js
+      - name: "Test del front: formulario y rutas por el gateway"
+        run: node front/prueba.js
+      - name: "Test de las figuras: la figura 4 tiene los mismos servicios que el compose.yaml"
+        run: python -m pytest -q docs/tests
+      - name: Guardar las tablas tratadas para la imagen de carga-datos
+        uses: actions/upload-artifact@v4
+        with:
+          name: tratados
+          path: carga-datos/tratados/
+          retention-days: 7
 
-  # 3. Construye las imagenes de los servicios que existen, para linux/amd64. Solo publica si NO es PR.
+  # 2. Imagenes: solo si las pruebas pasaron. En un pull request se construyen pero no se publican.
   imagenes:
-    if: github.ref_type != 'tag'
-    needs: [piezas, tests]
+    needs: pruebas
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
       matrix:
-        servicio: ${{ fromJSON(needs.piezas.outputs.servicios) }}
+        servicio: [gateway, front, dominio, carga-datos]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: salidas
-          path: carga-datos/tratados    # el artifact guarda solo el contenido de la carpeta
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+          name: tratados
+          path: carga-datos/tratados
+      - name: Login a GHCR
         if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Agrega la etiqueta org.opencontainers.image.revision = commit del que salio la imagen.
-      - id: meta
+      # Tags (sha, latest, ep2) y la etiqueta org.opencontainers.image.revision con el commit (IE10).
+      - name: Tags y etiquetas
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRO }}/${{ matrix.servicio }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.servicio }}
           tags: |
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-      - uses: docker/build-push-action@v6
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+      - name: Build (linux/amd64) y publicacion
+        uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.servicio }}
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION_COMMIT=${{ github.sha }}
-
-  # 4. Tag ep2: no reconstruye. Copia el tag ep2 sobre la imagen sha-xxxxxxx de ese commit,
-  #    asi lo que corre en la defensa es exactamente lo que ya se probo en main.
-  publicar-ep2:
-    if: github.ref == 'refs/tags/ep2'
-    needs: piezas
-    runs-on: ubuntu-latest
-    steps:
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: etiquetar ep2
-        env:
-          SERVICIOS: ${{ needs.piezas.outputs.servicios }}
-        run: |
-          # GHCR no acepta mayusculas en el nombre de la imagen (L4): se pasa a minusculas.
-          REG=$(echo "$REGISTRO" | tr '[:upper:]' '[:lower:]')
-          CORTO=${GITHUB_SHA::7}
-          for s in $(echo "$SERVICIOS" | tr -d '[]"' | tr ',' ' '); do
-            docker buildx imagetools create \
-              -t "$REG/$s:ep2" \
-              "$REG/$s:sha-$CORTO"
-          done
