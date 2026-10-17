@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Transaccion(BaseModel):
-    """Las 7 variables que arma la API de Decision (dominio/app/logica.py:variables_modelo)."""
+    """Las 7 variables que arma la API de Decision (dominio/app/reglas.py:variables_modelo)."""
     model_config = ConfigDict(extra="forbid")
 
     monto_usd: float = Field(..., gt=0, le=1_000_000, examples=[180.0])
@@ -35,8 +35,8 @@ class Razon(BaseModel):
     variable: str
     valor: float | str
     efecto: Literal["sube", "baja"]
-    aporte: float          # cuanto mueve el riesgo (log-odds) frente al valor tipico: positivo sube, negativo baja
-    condicion: str         # en palabras, para el analista o un auditor no tecnico (RT8)
+    aporte: float          # cuanto cambia la probabilidad por el valor real de la variable, contra su valor tipico
+    condicion: str         # en palabras, para el analista o un auditor (RF2)
 
 
 class Prediccion(BaseModel):
@@ -46,10 +46,8 @@ class Prediccion(BaseModel):
     nivel_riesgo: Literal["bajo", "medio", "alto"]
     umbral: float                        # el de la metadata; la decision final la toma el dominio con sus umbrales
     razones: list[Razon]                 # las 3 de mayor peso (RF2)
-    aportes: list[Razon]                 # todas, para auditoria (RF7)
     modelo_version: str
-    modelo_hash: str
-    replica: str
+    replica: str                         # que replica respondio (se ve el balanceo del gateway)
     latencia_ms: float
 
 

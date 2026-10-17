@@ -41,7 +41,6 @@ import numpy as np
 import pandas as pd
 import sklearn
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, precision_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -55,7 +54,7 @@ VIGENTE = AQUI / "modelo_vigente.json"
 SALIDA = AQUI / "model"
 
 SEMILLA = 42
-# Las 7 entradas de POST /predict, iguales a datos/preparar.py:VARIABLES y a dominio/app/logica.py.
+# Las 7 entradas de POST /predict, iguales a datos/preparar.py:VARIABLES y a dominio/app/reglas.py.
 VARIABLES_NUMERICAS = ["monto_usd", "hora_local", "intentos_previos_1h", "dispositivo_usuarios_distintos",
                        "sin_dispositivo", "pais_extranjero"]
 VARIABLES_CATEGORICAS = ["canal"]
@@ -74,13 +73,12 @@ COSTO_FALSO_POSITIVO_USD = round(1_162_600 / (460 * 365), 2)  # costo anual de b
 
 
 def construir_preprocesador() -> ColumnTransformer:
-    """Monto en escala logaritmica (va de USD 1 a miles), el resto estandarizado, canal en one-hot."""
-    monto = Pipeline([("imputar", SimpleImputer(strategy="median")), ("log", FunctionTransformer(np.log1p)),
-                      ("escalar", StandardScaler())])
-    resto = Pipeline([("imputar", SimpleImputer(strategy="median")), ("escalar", StandardScaler())])
+    """Monto en escala logaritmica (va de USD 1 a miles), el resto estandarizado, canal en one-hot.
+    No hace falta imputar nulos: el tratamiento no deja vacios y la API exige cada campo."""
+    monto = Pipeline([("log", FunctionTransformer(np.log1p)), ("escalar", StandardScaler())])
     return ColumnTransformer([
         ("monto", monto, VARIABLES_NUMERICAS[:1]),
-        ("num", resto, VARIABLES_NUMERICAS[1:]),
+        ("num", StandardScaler(), VARIABLES_NUMERICAS[1:]),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), VARIABLES_CATEGORICAS),
     ])
 
@@ -221,10 +219,13 @@ def main() -> int:
             viejo.unlink()
         return 1
 
-    # Valor "tipico" de cada variable: contra el se calculan las razones de cada prediccion (RF2).
-    referencia = {v: float(X_tr[v].median()) for v in VARIABLES_NUMERICAS}
-    referencia.update({v: str(X_tr[v].mode()[0]) for v in VARIABLES_CATEGORICAS})
-    referencia.update({v: float(X_tr[v].mode()[0]) for v in ["sin_dispositivo", "pais_extranjero"]})
+    # Valor "tipico" de cada variable (mediana o el mas comun): contra el se calculan las razones (RF2).
+    tipicos = {v: float(X_tr[v].median()) for v in VARIABLES_NUMERICAS}
+    tipicos.update({v: str(X_tr[v].mode()[0]) for v in VARIABLES_CATEGORICAS})
+    tipicos.update({v: float(X_tr[v].mode()[0]) for v in ["sin_dispositivo", "pais_extranjero"]})
+    # Media y desviacion del entrenamiento: contra ellas se mira el drift de la entrada (8.1).
+    estadisticas = {v: {"media": round(float(X_tr[v].mean()), 3), "desviacion": round(float(X_tr[v].std()), 3)}
+                    for v in ["monto_usd", "hora_local", "intentos_previos_1h"]}
 
     metadata = {
         "nombre": "randuin-fraude",
@@ -238,8 +239,9 @@ def main() -> int:
         "variables_numericas": VARIABLES_NUMERICAS,
         "variables_categoricas": VARIABLES_CATEGORICAS,
         "umbral": UMBRAL,
-        "referencia_razones": referencia,
-        "sha256_onnx": hashlib.sha256((SALIDA / "modelo.onnx").read_bytes()).hexdigest(),   # RF7
+        "valores_tipicos": tipicos,
+        "estadisticas_entrenamiento": estadisticas,
+        "sha256_onnx": hashlib.sha256((SALIDA / "modelo.onnx").read_bytes()).hexdigest(),
         "conjuntos": {"entrenamiento": [len(entrenamiento), int(y_tr.sum())],
                       "validacion": [len(validacion), int(y_val.sum())],
                       "prueba_fija": [len(prueba), int(y_te.sum())]},

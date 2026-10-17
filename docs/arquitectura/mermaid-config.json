@@ -1,0 +1,4 @@
+{"themeVariables": {"fontSize": "19px"},
+ "sequence": {"actorFontSize": 19, "messageFontSize": 19, "noteFontSize": 17, "actorMargin": 40, "width": 140, "boxMargin": 6, "messageMargin": 22, "mirrorActors": false},
+ "er": {"fontSize": 16},
+ "flowchart": {"nodeSpacing": 35, "rankSpacing": 45}}

@@ -1,0 +1,39 @@
+flowchart TB
+  classDef svc fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef dat fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef ext fill:#999,stroke:#6b6b6b,color:#fff
+  classDef lb fill:#08427b,stroke:#052e56,color:#fff
+  core["<b>Core de Pagos</b><br/>cuenta PCI (RT1)"]:::ext
+  legacy["<b>Motor de Reglas Legacy</b><br/>respaldo del core (RNF3, RO6)"]:::ext
+  subgraph AWS["AWS us-east-1 · cuenta no PCI · VPC privada · orquestador ECS Fargate (ADR-7)"]
+    alb{{"<b>Application Load Balancer interno</b> (2 zonas) · hace lo del gateway<br/>HTTPS · reglas: /api/decision/* · /api/ia/* · /<br/>health check GET /health cada 10 s, 2 fallas = fuera"}}:::lb
+    subgraph AZa["Zona de disponibilidad us-east-1a"]
+      d1["<b>dominio</b> tarea 1<br/>1 vCPU / 2 GB"]:::svc
+      i1["<b>ia</b> tarea 1<br/>2 vCPU / 4 GB"]:::svc
+      f1["<b>front</b> 1 tarea<br/>0,25 vCPU / 0,5 GB"]:::svc
+      rds1[("<b>RDS PostgreSQL</b><br/>primaria, cifrada")]:::dat
+    end
+    subgraph AZb["Zona de disponibilidad us-east-1b"]
+      d2["<b>dominio</b> tarea 2<br/>1 vCPU / 2 GB"]:::svc
+      i2["<b>ia</b> tarea 2<br/>2 vCPU / 4 GB"]:::svc
+      rds2[("<b>RDS PostgreSQL</b><br/>standby síncrona")]:::dat
+    end
+    s3[("<b>S3 Glacier Flexible Retrieval</b><br/>decisiones de más de 90 días,<br/>7 años (RN7)")]:::dat
+    ecr[("<b>ECR</b> imágenes del pipeline<br/><b>Secrets Manager</b> clave de la base y API key<br/><b>CloudWatch</b> logs y alarmas (8.1)")]:::ext
+  end
+  core -->|"HTTPS privado, tope 150 ms (RT3)"| alb
+  core -. "si Randuin no responde en 100 ms" .-> legacy
+  alb -->|"/api/decision/*"| d1
+  alb --> d2
+  d1 -->|"POST /api/ia/predict, 100 ms"| alb
+  d2 --> alb
+  alb -->|"/api/ia/*"| i1
+  alb --> i2
+  alb -->|"/"| f1
+  d1 -->|"SQL"| rds1
+  d2 --> rds1
+  rds1 -. "replicación síncrona, failover automático" .-> rds2
+  rds1 -->|"export mensual"| s3
+  style AZa fill:#eef4fc,stroke:#307FE2
+  style AZb fill:#eef4fc,stroke:#307FE2
+  style AWS fill:#ffffff,stroke:#8A8A8A

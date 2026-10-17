@@ -1,0 +1,16 @@
+flowchart LR
+  classDef bloque fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef externo fill:#999,stroke:#6b6b6b,color:#fff
+  core["Core de Pagos"]:::externo -->|transacción| api
+  riesgo(["Gerencia de Riesgo"]):::externo -->|umbrales| conf
+  subgraph R["Randuin"]
+    api["<b>API de Decisión</b><br/>reglas duras RF4/RF8, umbrales RF3,<br/>política de reserva RNF3<br/><i>EP2: contenedor dominio</i>"]:::bloque
+    conf["<b>Servicio de Configuración<br/>de Umbrales</b><br/>bitácora: quién, cuándo, por qué (RNF10)<br/><i>EP2: dominio /umbrales,<br/>tabla umbrales</i>"]:::bloque
+    motor["<b>Motor de Inferencia</b><br/>red MLP (TensorFlow → ONNX):<br/>score y razones (RF2)<br/><i>EP2: contenedor ia, 2 réplicas</i>"]:::bloque
+    vel["<b>Contador de Velocidad</b><br/>intentos en la última hora (RF10)<br/><i>EP2: consulta en postgres</i>"]:::bloque
+    aud[("<b>Repositorio de Auditoría</b><br/>cada decisión con entrada, modelo,<br/>umbral y fecha (RF7, RNF7)<br/><i>EP2: postgres, tabla predicciones</i>")]:::bloque
+    api -->|"variables, timeout 100 ms"| motor
+    api -->|"usuario, dispositivo"| vel
+    api -->|registra| aud
+    conf -->|umbrales vigentes| api
+  end

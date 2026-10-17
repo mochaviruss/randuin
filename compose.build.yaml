@@ -1,0 +1,15 @@
+# SOLO para probar en un computador propio: construye las imagenes desde el codigo en vez de descargarlas.
+# NO se usa en la defensa (alli solo pull + up con compose.yaml).
+#
+# Antes, generar los datos tratados y el modelo (quedan dentro de las imagenes):
+#   pip install -r datos/requirements.txt -r servicio-ia/requirements-tensorflow.txt
+#   python datos/preparar.py
+#   python servicio-ia/entrenar.py
+# Luego:
+#   docker compose -p equipo07 -f compose.yaml -f compose.build.yaml up -d --build
+services:
+  gateway:     { build: ./gateway }
+  front:       { build: ./front }
+  dominio:     { build: ./dominio }
+  ia:          { build: ./servicio-ia }
+  carga-datos: { build: ./carga-datos }

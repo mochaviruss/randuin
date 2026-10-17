@@ -1,0 +1,25 @@
+flowchart LR
+  A["Rama feat/<br/>(usuario de<br/>cada integrante)"] -->|PR| B{{"dev"}}
+  subgraph CI["GitHub Actions · en cada PR a dev o main, push a main y tag ep2"]
+    direction TB
+    subgraph W2["ci.yml"]
+      direction TB
+      C1["<b>pruebas</b><br/>preparar.py · tests con Postgres real<br/>(carga sin duplicar, dominio)<br/>· test del gateway · figura 4 = compose"]
+      C2["<b>imagenes</b> (needs: pruebas)<br/>gateway, front, dominio, carga-datos<br/>build amd64 + label revision"]
+      C1 --> C2
+    end
+    subgraph W1["servicio-ia.yml"]
+      direction TB
+      S1["<b>datos</b> preparar.py"]
+      S2["<b>entrenar.py</b> TensorFlow CPU → ONNX<br/>compuerta: PR-AUC ≥ 0,80, recall ≥ 0,70,<br/>no peor que el modelo vigente"]
+      S3["<b>tests</b> · build amd64 + label revision<br/>· prueba de humo"]
+      S1 --> S2 --> S3
+    end
+  end
+  B -.-> C1 & S1
+  S2 -. "no pasa la compuerta" .-> X["ALTO<br/>PR en rojo:<br/>no se integra"]
+  C1 -. "un test falla" .-> X
+  B -->|"PR dev → main"| M{{"main protegida"}}
+  M -->|"push: publica"| G[("GHCR<br/>servicio:sha-xxxxxxx<br/>servicio:latest")]
+  M -->|"tag ep2: publica"| I[("GHCR<br/>servicio:ep2")]
+  I -->|"compose pull"| J["Computador<br/>de la defensa"]

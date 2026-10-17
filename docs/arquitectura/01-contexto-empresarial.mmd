@@ -1,0 +1,27 @@
+flowchart LR
+  classDef persona fill:#08427b,stroke:#052e56,color:#fff
+  classDef sistema fill:#1168bd,stroke:#0b4884,color:#fff
+  classDef externo fill:#999,stroke:#6b6b6b,color:#fff
+
+  riesgo(["<b>Gerencia de Riesgo</b><br/>Ignacia Bravo · fija y<br/>autoriza los umbrales (RO5)"]):::persona
+  analistas(["<b>Analistas de fraude</b><br/>6 analistas, 08:00 a 22:00"]):::persona
+  auditor(["<b>Auditor externo / CMF</b><br/>reconstruye decisiones pasadas"]):::persona
+  core["<b>Core de Pagos</b><br/>pide la decisión antes de autorizar"]:::externo
+
+  R["<b>Randuin</b><br/>decide aprobar, revisar o bloquear<br/>cada transacción, con sus razones,<br/>y registra cada decisión"]:::sistema
+
+  legacy["<b>Motor de Reglas Legacy (Java)</b><br/>decide mientras Randuin está en sombra (RO6)"]:::externo
+  herr["<b>Herramienta de analistas</b><br/>cola de revisión existente (se integra, §11)"]:::externo
+  dw["<b>Data Warehouse</b><br/>histórico de 3 años, carga nocturna"]:::externo
+  bureau["<b>Bureau de Identidad</b><br/>900 ms, USD 0,08 por consulta"]:::externo
+  sanc["<b>Proveedor de Listas de Sanciones</b><br/>archivo diario"]:::externo
+
+  core -->|"transacción → decisión y razones"| R
+  riesgo -->|"umbrales: quién, cuándo y por qué"| R
+  auditor -->|"traza de una transacción"| R
+  sanc -->|"lista de sanciones"| R
+  R -->|"transacciones marcadas y razones"| herr
+  analistas -->|"revisan y etiquetan"| herr
+  R -->|"decisiones para reentrenar"| dw
+  R -.->|"consulta puntual, fuera de los 100 ms"| bureau
+  core -.->|"decisión vigente en modo sombra / reserva"| legacy
