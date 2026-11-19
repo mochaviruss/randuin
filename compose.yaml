@@ -1,31 +1,55 @@
-# compose.yaml de la defensa de EP2 - Randuin, Equipo 07.
-# Se levanta con dos comandos, desde esta carpeta (enunciado 2.3, regla 9):
-#   docker compose -p equipo07 pull
-#   docker compose -p equipo07 up -d
-# y despues http://localhost:8080 en el navegador.
+# compose.yaml de EP3 · Randuin, Equipo 07. Corre en la EC2 del Learner Lab, con las imagenes :ep3 que publica el pipeline.
 #
-# Reglas que cumple (enunciado 2.3):
-#   1. Solo descarga imagenes (ghcr.io/mochaviruss/<servicio>:ep2): ningun build:.
-#   2. Imagenes publicas en GHCR, construidas por el pipeline para linux/amd64.
-#   3. Sin bind mounts: el modelo va dentro de la imagen de ia y los datos tratados dentro de la de carga-datos.
-#      Lo unico que persiste es la base, en el volumen con nombre datos-db.
-#   4. Solo el gateway publica puerto (8080).
-#   5. healthcheck en cada servicio propio y depends_on con condition cuando uno no puede arrancar sin otro.
-#   6. cpus y mem_limit en cada servicio propio (capitulo 7.2): pico medido bajo carga x 1,5 (50 % de margen, D8),
-#      cpus redondeado hacia arriba a 0,25 y mem_limit a multiplos de 32 MiB (minimo 64 MiB). Se remiden con scripts/carga.ps1 +
-#      docker stats. Postgres: no menos que sus shared_buffers (128 MiB) mas sus procesos.
-#   7. Menos de 2 GB sumando las imagenes: bases slim/alpine; la imagen de ia no lleva TensorFlow ni CUDA.
-#   8. Nada secreto: los valores por defecto son de ejemplo y sirven tal cual (ver .env.example).
+#   En la EC2 (una vez):   cp .env.example .env     y completar API_KEY, POSTGRES_PASSWORD y DOMINIO
+#   Para levantar:         docker compose pull && docker compose up -d        (o ./scripts/desplegar.sh)
+#
+#   Internet --443--> caddy (HTTPS, Let's Encrypt) --> gateway --> front | dominio | ia (x2)
+#                                                                    dominio --> postgres
+#                                                                    ia --invoke_endpoint--> SageMaker (la red 64-32)
+#
+# Cambios respecto de EP2:
+#   - El modelo ya no vive en la imagen de ia: corre en un endpoint de SageMaker (carpeta sagemaker/). ia lo invoca con el
+#     ROL de la EC2 (LabInstanceProfile): no hay claves de acceso de AWS en este archivo, en el .env ni en las imagenes.
+#   - caddy es el UNICO servicio con puertos publicados (80 y 443). El gateway ya no se publica: solo se llega por HTTPS.
+#   - Sin valores por defecto para los secretos: si falta API_KEY o POSTGRES_PASSWORD, compose se detiene y lo dice.
+#
+# Reglas que siguen valiendo (EP2, 2.3): imagenes de GHCR sin build:, healthcheck en cada servicio propio, depends_on con
+# condition, cpus y mem_limit en cada servicio propio, y la base en un volumen con nombre.
+# Los limites de ia y caddy son PROVISORIOS: se remiden en la EC2 con docker stats (el procedimiento es el del capitulo 7.2).
 
 services:
 
-  # La unica puerta (Node, como en el L6). Enruta / al front, /api/decision al dominio y /api/ia a las 2 replicas.
-  gateway:
-    image: ghcr.io/mochaviruss/gateway:ep2
+  # HTTPS. Certificado de Let's Encrypt para DOMINIO (sslip.io); los certificados quedan en el volumen caddy-data para no
+  # pedirlos de nuevo en cada reinicio (Let's Encrypt limita cuantos entrega por semana).
+  caddy:
+    image: caddy:2-alpine
     ports:
-      - "8080:8080"
+      - "80:80"
+      - "443:443"
     environment:
-      API_KEY: ${API_KEY:-randuin-local}
+      DOMINIO: ${DOMINIO:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    cpus: 0.25
+    mem_limit: 96m
+    restart: unless-stopped
+
+  # La puerta interna (Node, como en el L6). Enruta / al front, /api/decision al dominio y /api/ia a las 2 replicas.
+  # Ya no publica puerto: solo caddy le habla.
+  gateway:
+    image: ghcr.io/mochaviruss/gateway:${TAG:-ep3}
+    environment:
+      API_KEY: ${API_KEY:?Falta API_KEY, copia .env.example a .env y completalo}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
       interval: 10s
@@ -37,7 +61,7 @@ services:
 
   # Pagina HTML con el formulario. Llama a /api/decision/... a traves del gateway.
   front:
-    image: ghcr.io/mochaviruss/front:ep2
+    image: ghcr.io/mochaviruss/front:${TAG:-ep3}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
       interval: 10s
@@ -50,11 +74,15 @@ services:
   # Microservicio de dominio: la unica pieza que lee y escribe la base. Llama al modelo por el gateway.
   # Arranca cuando la base esta sana y la carga de datos termino bien.
   dominio:
-    image: ghcr.io/mochaviruss/dominio:ep2
+    image: ghcr.io/mochaviruss/dominio:${TAG:-ep3}
     environment:
-      DB_URL: postgresql://${POSTGRES_USER:-randuin}:${POSTGRES_PASSWORD:-randuin_local}@postgres:5432/${POSTGRES_DB:-randuin}
+      DB_URL: postgresql://${POSTGRES_USER:-randuin}:${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-randuin}
       IA_URL: http://gateway:8080/api/ia
-      API_KEY: ${API_KEY:-randuin-local}
+      API_KEY: ${API_KEY:?Falta API_KEY, copia .env.example a .env y completalo}
+      # Cuanto espera el dominio al modelo antes de aplicar la politica de reserva. RNF3 del caso: 100 ms; RT3: el core
+      # corta a los 150 ms en total. Por eso NO se sube por defecto: un valor mayor haria que el core desista antes de que
+      # el dominio responda. Con SageMaker serverless la invocacion tarda ~40 ms en caliente (p95 ~105 ms medido) y ~6 s en
+      # frio, asi que una parte de las decisiones saldra por la reserva: se mide en la prueba de carga y se informa.
       IA_TIMEOUT_MS: ${IA_TIMEOUT_MS:-100}
     depends_on:
       postgres:
@@ -71,27 +99,32 @@ services:
     mem_limit: 160m
     restart: unless-stopped
 
-  # Microservicio de IA: la red (TensorFlow -> ONNX) va dentro de la imagen. 2 replicas: el gateway las reparte.
+  # Microservicio de IA: invoca el endpoint de SageMaker (la red 64-32) con el rol de la EC2 y calcula las razones.
+  # Sin modelo dentro de la imagen. 2 replicas: el gateway las reparte.
   ia:
-    image: ghcr.io/mochaviruss/servicio-ia:ep2
+    image: ghcr.io/mochaviruss/servicio-ia:${TAG:-ep3}
     deploy:
       replicas: 2
+    environment:
+      ENDPOINT: ${ENDPOINT:-randuin-fraude}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      SAGEMAKER_TIMEOUT: ${SAGEMAKER_TIMEOUT:-10}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 20s
-    cpus: 1.0
-    mem_limit: 320m
+    cpus: 0.5
+    mem_limit: 192m
     restart: unless-stopped
 
-  # Base de datos: imagen oficial y volumen con nombre (los datos sobreviven a un down sin -v).
+  # Base de datos: imagen oficial y volumen con nombre (los datos sobreviven a un down sin -v). Sin puerto publicado.
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-randuin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-randuin_local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-randuin}
     volumes:
       - datos-db:/var/lib/postgresql/data
@@ -107,9 +140,9 @@ services:
   # Carga de datos: corre UNA vez (crea las tablas, inserta los CSV tratados sin duplicar) y termina con codigo 0.
   # No lleva healthcheck porque no queda corriendo: su senal es "terminado bien" (service_completed_successfully).
   carga-datos:
-    image: ghcr.io/mochaviruss/carga-datos:ep2
+    image: ghcr.io/mochaviruss/carga-datos:${TAG:-ep3}
     environment:
-      DB_URL: postgresql://${POSTGRES_USER:-randuin}:${POSTGRES_PASSWORD:-randuin_local}@postgres:5432/${POSTGRES_DB:-randuin}
+      DB_URL: postgresql://${POSTGRES_USER:-randuin}:${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-randuin}
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,3 +152,5 @@ services:
 
 volumes:
   datos-db:
+  caddy-data:
+  caddy-config:

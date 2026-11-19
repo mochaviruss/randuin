@@ -26,9 +26,21 @@ def test_figura_52_y_compose_tienen_los_mismos_servicios():
 
 
 def test_compose_sin_build_ni_puertos_extra():
-    """Reglas 1 y 4 de la seccion 2.3: ningun build: y solo el gateway publica puerto."""
+    """EP3 (2.1, 2.4): ningun build: y caddy es el UNICO servicio con puertos publicados, y solo el 80 y el 443."""
     texto = (RAIZ / "compose.yaml").read_text(encoding="utf-8")
-    assert not re.search(r"^\s+build:", texto, flags=re.M), "el compose de la defensa no puede tener build:"
-    assert texto.count("ports:") == 1 and '"8080:8080"' in texto, "solo el gateway publica el 8080"
+    assert not re.search(r"^\s+build:", texto, flags=re.M), "el compose de la entrega no puede tener build:"
+    assert texto.count("ports:") == 1, "solo un servicio publica puertos"
+    publicados = re.findall(r'^\s+- "(\d+:\d+)"', texto, flags=re.M)
+    assert sorted(publicados) == ["443:443", "80:80"], f"solo el 80 y el 443 estan abiertos, no {publicados}"
+    assert re.search(r"^  caddy:\s*\n(?:.*\n)*?    ports:", texto, flags=re.M), "los puertos son de caddy"
     for imagen in re.findall(r"^\s+image:\s*(\S+)", texto, flags=re.M):
-        assert imagen.endswith(":ep2") or imagen.startswith("postgres:"), f"imagen sin tag ep2: {imagen}"
+        assert (imagen.endswith(":${TAG:-ep3}") or imagen.startswith(("postgres:", "caddy:"))), \
+            f"imagen propia sin el tag ep3: {imagen}"
+
+
+def test_compose_sin_secretos_por_defecto_ni_claves_de_aws():
+    """Los secretos no tienen valor por defecto (compose se detiene si faltan) y no hay claves de acceso de AWS."""
+    texto = (RAIZ / "compose.yaml").read_text(encoding="utf-8")
+    assert "${API_KEY:?" in texto and "${POSTGRES_PASSWORD:?" in texto
+    assert "randuin-local" not in texto and "randuin_local" not in texto
+    assert not re.search(r"AWS_(ACCESS|SECRET|SESSION)", texto + (RAIZ / ".env.example").read_text(encoding="utf-8"))
