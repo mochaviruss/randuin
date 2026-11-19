@@ -1,12 +1,12 @@
-# Pipeline del Motor de Inferencia (servicio-ia), patron de la guia del curso (EP2, secciones 2.2 y 2.5).
+# Pipeline del microservicio de IA (servicio-ia). EP3.
 #
-#   Pull request a dev o main -> datos + entrenamiento + compuerta + tests + build + prueba de humo (NO publica)
+#   Pull request a dev o main -> tests + build + prueba de humo del contenedor (NO publica)
 #   Push a main (merge de dev) -> lo mismo y publica en GHCR: ghcr.io/<cuenta>/servicio-ia:sha-xxxxxxx y :latest
-#   Tag ep2                    -> lo mismo y publica ademas con el tag ep2 (como el workflow de la guia del curso).
-#                                 El entrenamiento usa semilla fija: el modelo sale igual que en main.
+#   Tag ep3                    -> lo mismo y publica ademas con el tag ep3 (el que usa el compose.yaml en la EC2).
 #
-# TensorFlow se instala SOLO en este job (tensorflow-cpu, sin CUDA). La imagen no lo lleva: sirve con onnxruntime.
-# El modelo no se commitea: main esta protegida y el modelo viaja dentro de la imagen (y como artifact del job).
+# EP3: el modelo ya NO se entrena ni viaja en esta imagen. La red vive en un endpoint de SageMaker, que se crea con los
+# scripts de sagemaker/ (reproducibles, desde CloudShell). Este servicio solo lo invoca con el rol de la EC2, asi que el
+# pipeline no necesita TensorFlow ni credenciales de AWS: los tests usan un doble del endpoint.
 name: servicio-ia
 
 on:
@@ -14,7 +14,7 @@ on:
     branches: [dev, main]
   push:
     branches: [main]
-    tags: [ep2]
+    tags: [ep3]
   workflow_dispatch:
 
 permissions:
@@ -22,7 +22,7 @@ permissions:
   packages: write     # para publicar la imagen en GHCR
 
 jobs:
-  entrenar-probar-publicar:
+  probar-construir-publicar:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,34 +33,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: servicio-ia/requirements-dev.txt
 
-      - name: Dependencias de entrenamiento (TensorFlow solo CPU, sin CUDA)
-        run: pip install -r datos/requirements.txt -r servicio-ia/requirements-tensorflow.txt
+      - name: Dependencias del servicio (sin TensorFlow ni onnxruntime)
+        run: pip install -r servicio-ia/requirements-dev.txt
 
-      - name: Datos - validar, perfilar, limpiar e integrar (datos/preparar.py)
-        run: |
-          python datos/preparar.py
-          python -m pytest -q datos/tests
-
-      - name: Entrenar + verificar ONNX + compuerta de calidad
-        # Si la PR-AUC en la prueba fija baja de 0,80, el recall baja de 0,70 o el candidato es peor que el
-        # modelo vigente (servicio-ia/modelo_vigente.json), entrenar.py sale con codigo 1 y aqui se detiene todo.
-        run: |
-          python servicio-ia/entrenar.py --pr-auc-minimo 0.80 \
-            --version "1.0.${{ github.run_number }}-tf-${GITHUB_SHA::7}"
-
-      - name: Tests del servicio (con el modelo recien entrenado)
+      - name: Tests del servicio (con el endpoint de SageMaker simulado)
         working-directory: servicio-ia
         run: python -m pytest -q tests
-
-      - name: Guardar el modelo y el reporte de datos (artifact)
-        uses: actions/upload-artifact@v4
-        with:
-          name: modelo-servicio-ia
-          path: |
-            servicio-ia/model/
-            datos/salida/reporte.md
-          retention-days: 14
 
       - name: Nombre de la imagen (GHCR exige minusculas)
         run: echo "IMAGEN=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/servicio-ia" >> "$GITHUB_ENV"
@@ -88,16 +68,25 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: REVISION=${{ github.sha }}
 
-      - name: Prueba de humo del contenedor (health + predict + tamano < 1 GB)
+      - name: Prueba de humo del contenedor (health + camino de falla + tamano < 1 GB)
+        # Aqui no hay credenciales de AWS ni endpoint: /health responde 200 (leyo su referencia) y dice que SageMaker
+        # no es alcanzable; /predict responde 503, NO 500 (el dominio lo traduce en su politica de reserva).
         run: |
           docker run -d --name ia -p 8000:8000 servicio-ia:ci
-          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 2; done
+          for i in $(seq 1 40); do curl -sf localhost:8000/health && break; sleep 2; done
           echo
-          curl -sf localhost:8000/health
+          curl -s localhost:8000/health
           echo
-          curl -sf -X POST localhost:8000/predict -H "Content-Type: application/json" \
-            -d '{"monto_usd":52,"hora_local":3,"intentos_previos_1h":5,"dispositivo_usuarios_distintos":4,"sin_dispositivo":false,"pais_extranjero":true,"canal":"web"}'
-          echo
+          CODIGO=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -X POST localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"monto_usd":52,"hora_local":25,"intentos_previos_1h":5,"dispositivo_usuarios_distintos":4,"sin_dispositivo":false,"pais_extranjero":true,"canal":"web"}')
+          echo "POST /predict con hora_local=25 (invalida) -> $CODIGO (se espera 422)"
+          [ "$CODIGO" = "422" ]
+          CODIGO=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 -X POST localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"monto_usd":52,"hora_local":3,"intentos_previos_1h":5,"dispositivo_usuarios_distintos":4,"sin_dispositivo":false,"pais_extranjero":true,"canal":"web"}')
+          echo "POST /predict sin SageMaker -> $CODIGO (se espera 503)"
+          [ "$CODIGO" = "503" ]
           BYTES=$(docker image inspect servicio-ia:ci --format '{{.Size}}')
           echo "Tamano de la imagen: $((BYTES / 1024 / 1024)) MB"
           if [ "$BYTES" -gt 1073741824 ]; then echo "::error::La imagen supera 1 GB"; exit 1; fi
@@ -112,7 +101,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publicar en GHCR (push a main o tag ep2)
+      - name: Publicar en GHCR (push a main o tag ep3)
         if: github.event_name != 'pull_request'
         env:
           TAGS: ${{ steps.meta.outputs.tags }}

@@ -1,0 +1,39 @@
+{
+  "valores_tipicos": {
+    "monto_usd": 9.215,
+    "hora_local": 13.0,
+    "intentos_previos_1h": 1.0,
+    "dispositivo_usuarios_distintos": 1.0,
+    "sin_dispositivo": 0.0,
+    "pais_extranjero": 0.0,
+    "canal": "app"
+  },
+  "estadisticas_entrenamiento": {
+    "monto_usd": {
+      "media": 29.254,
+      "desviacion": 47.167
+    },
+    "hora_local": {
+      "media": 12.89,
+      "desviacion": 5.627
+    },
+    "intentos_previos_1h": {
+      "media": 1.1,
+      "desviacion": 1.877
+    }
+  },
+  "conjuntos": {
+    "entrenamiento": [
+      720,
+      69
+    ],
+    "validacion": [
+      181,
+      20
+    ],
+    "prueba_fija": [
+      300,
+      45
+    ]
+  }
+}
