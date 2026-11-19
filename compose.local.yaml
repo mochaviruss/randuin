@@ -1,0 +1,14 @@
+# SOLO para probar en tu computador, encima de compose.yaml. NO se usa en la EC2.
+#   - Publica el gateway en http://localhost:8080 (como en EP2) para usar scripts/carga.ps1, latencia.ps1 y Postman.
+#   - Deja a caddy apagado (perfil "nube"): no hace falta HTTPS en local y asi no ocupa los puertos 80 y 443.
+#
+#   docker compose -p equipo07 -f compose.yaml -f compose.build.yaml -f compose.local.yaml up -d --build
+#
+# En tu computador no hay rol de AWS: ia responde 503 y el dominio decide con la politica de reserva (origen = reserva).
+# Para usar el modelo de verdad, corre dentro de la EC2 (o exporta credenciales temporales del Learner Lab a ia).
+services:
+  gateway:
+    ports:
+      - "8080:8080"
+  caddy:
+    profiles: ["nube"]

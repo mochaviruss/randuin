@@ -1,12 +1,12 @@
 # SOLO para probar en un computador propio: construye las imagenes desde el codigo en vez de descargarlas.
-# NO se usa en la defensa (alli solo pull + up con compose.yaml).
+# NO se usa en la entrega (alli solo pull + up con compose.yaml y las imagenes :ep3).
 #
-# Antes, generar los datos tratados y el modelo (quedan dentro de las imagenes):
-#   pip install -r datos/requirements.txt -r servicio-ia/requirements-tensorflow.txt
+# Antes, generar los datos tratados (quedan dentro de la imagen de carga-datos):
+#   pip install -r datos/requirements.txt
 #   python datos/preparar.py
-#   python servicio-ia/entrenar.py
-# Luego:
-#   docker compose -p equipo07 -f compose.yaml -f compose.build.yaml up -d --build
+# EP3: la imagen de ia ya NO necesita modelo (corre en SageMaker), asi que no hay que entrenar para construirla.
+# Luego (para usar tu computador como entorno de prueba, con el gateway en http://localhost:8080):
+#   docker compose -p equipo07 -f compose.yaml -f compose.build.yaml -f compose.local.yaml up -d --build
 services:
   gateway:     { build: ./gateway }
   front:       { build: ./front }

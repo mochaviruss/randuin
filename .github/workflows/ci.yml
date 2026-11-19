@@ -1,10 +1,10 @@
-# Pipeline de gateway, front, dominio y carga-datos (enunciado 2.5). Mismo patron del L4, sin el deploy por SSH:
-# primero las pruebas y, solo si pasan (needs:), la construccion y publicacion de las imagenes.
-# El microservicio de IA tiene su propio workflow: servicio-ia.yml.
+# Pipeline de gateway, front, dominio y carga-datos (EP3, 2.6). Mismo patron del L4, sin el deploy por SSH:
+# primero las pruebas (incluidas las de la seccion 4.3 del enunciado) y, solo si pasan (needs:), la construccion
+# y publicacion de las imagenes. El microservicio de IA tiene su propio workflow: servicio-ia.yml.
 #
-#   Pull request hacia dev o main -> pruebas + build de las 4 imagenes, SIN publicar
+#   Pull request hacia dev o main -> pruebas + build de las imagenes, SIN publicar
 #   Push a main (merge desde dev) -> lo mismo y publica en GHCR con los tags sha-xxxxxxx y latest
-#   Tag ep2                       -> lo mismo y publica con el tag ep2 (el que usa el compose.yaml de la defensa)
+#   Tag ep3                       -> lo mismo y publica con el tag ep3 (el que usa el compose.yaml en la EC2)
 name: ci
 
 on:
@@ -12,7 +12,7 @@ on:
     branches: [dev, main]
   push:
     branches: [main]
-    tags: [ep2]
+    tags: [ep3]
 
 permissions:
   contents: read
@@ -86,7 +86,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Tags (sha, latest, ep2) y la etiqueta org.opencontainers.image.revision con el commit (IE10).
+      # Tags (sha, latest, ep3) y la etiqueta org.opencontainers.image.revision con el commit (IE10).
       - name: Tags y etiquetas
         id: meta
         uses: docker/metadata-action@v5

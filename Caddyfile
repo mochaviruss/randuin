@@ -1,0 +1,14 @@
+# Caddy: la UNICA puerta hacia internet (puertos 80 y 443). EP3, 2.4.
+#
+# Obtiene y renueva solo el certificado de Let's Encrypt para el nombre de DOMINIO. Sin dominio propio (el Learner Lab no
+# deja registrar uno) se usa sslip.io, que resuelve cualquier nombre con forma de IP: si la IP elastica es 3.85.10.20,
+# DOMINIO=3-85-10-20.sslip.io apunta a ella. Todo lo que llega se pasa al gateway (que enruta, exige la API key y limita
+# la tasa de peticiones).
+#
+#   En la EC2:        DOMINIO=<ip-con-guiones>.sslip.io   (en el .env)
+#   En tu computador: sin DOMINIO se usa "localhost" (certificado propio de Caddy: el navegador avisa, curl -k)
+{$DOMINIO:localhost} {
+	encode gzip
+	log
+	reverse_proxy gateway:8080
+}

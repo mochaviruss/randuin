@@ -5,10 +5,19 @@ datos/salida/
 servicio-ia/model/*
 !servicio-ia/model/.gitkeep
 
-# Nada secreto en el repo
+# Nada secreto en el repo (EP3: ni claves de AWS ni la NVIDIA_API_KEY; el rol de la EC2 reemplaza a las claves)
 .env
+.env.*
+!.env.example
 *.pem
 *.key
+
+# EP3: SageMaker y la prueba de carga
+# estado.json trae el ID de la cuenta de AWS y el nombre del bucket: queda en cada computador.
+sagemaker/estado.json
+sagemaker/datos/
+*.tar.gz
+pruebas/resultados/*.html
 
 # Python
 __pycache__/
