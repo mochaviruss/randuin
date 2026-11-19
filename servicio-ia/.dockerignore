@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 tests/
 entrenar.py
+model/
 modelo_vigente.json
 requirements-dev.txt
 requirements-tensorflow.txt

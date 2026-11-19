@@ -1,11 +1,7 @@
-# Dependencias de la IMAGEN (runtime). Aqui NO van TensorFlow ni PyTorch: el modelo llega exportado
-# a ONNX y lo ejecuta onnxruntime. scikit-learn queda fijo porque preprocesador.joblib solo se carga
-# bien con la misma version con que se creo (entrenar.py la anota en metadata.json).
+# Dependencias de la IMAGEN (runtime). EP3: el modelo corre en un endpoint de SageMaker, asi que aqui NO van TensorFlow,
+# onnxruntime, scikit-learn, pandas ni numpy: solo la API y el cliente de AWS (boto3), que toma las credenciales del rol
+# de la EC2 (LabInstanceProfile). Sin access keys en ninguna parte.
 fastapi==0.142.2
 uvicorn==0.53.0
 pydantic==2.13.5
-onnxruntime==1.30.0
-scikit-learn==1.9.1
-pandas==3.0.5
-numpy==2.5.3
-joblib==1.6.0
+boto3==1.44.6
