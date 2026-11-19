@@ -4,20 +4,24 @@ flowchart LR
   classDef ext fill:#999,stroke:#6b6b6b,color:#fff
   usuario(["<b>Analista / Gerencia de Riesgo</b><br/>[Persona] usa el front<br/>desde el navegador"]):::persona
   core["<b>Core de Pagos</b><br/>[Sistema externo]<br/>en producción"]:::ext
-  subgraph randuin["Randuin · docker compose -p equipo07 · red interna equipo07_default"]
-    gateway["<b>gateway</b><br/>[Contenedor: Node 22-alpine]<br/>única puerta y único puerto<br/>publicado (8080); API key en /api/ia"]:::cont
+  sm{{"<b>Amazon SageMaker</b><br/>[Sistema externo · AWS]<br/>endpoint serverless randuin-fraude:<br/>la red 64-32 con TensorFlow Serving"}}:::ext
+  subgraph randuin["Randuin · docker compose en una EC2 t3.medium (us-east-1) · red interna"]
+    caddy["<b>caddy</b><br/>[Contenedor: Caddy 2-alpine]<br/>únicas puertas publicadas (80 y 443);<br/>HTTPS con Let's Encrypt sobre sslip.io"]:::cont
+    gateway["<b>gateway</b><br/>[Contenedor: Node 22-alpine]<br/>enruta, sin puerto publicado;<br/>API key en /api/ia"]:::cont
     front["<b>front</b><br/>[Contenedor: nginx 1.28-alpine]<br/>página HTML: formulario y<br/>últimas decisiones"]:::cont
     dominio["<b>dominio</b><br/>[Contenedor: Python 3.12 + FastAPI]<br/>API de Decisión: lista negra, umbrales,<br/>reserva; único que usa la base"]:::cont
-    ia["<b>ia</b> · 2 réplicas<br/>[Contenedor: FastAPI + onnxruntime]<br/>red TensorFlow exportada a ONNX;<br/>score, 3 razones y versión; sin estado"]:::cont
+    ia["<b>ia</b> · 2 réplicas<br/>[Contenedor: FastAPI + boto3]<br/>invoca el endpoint de SageMaker;<br/>score, 3 razones y versión; sin estado"]:::cont
     postgres[("<b>postgres</b><br/>[Contenedor: PostgreSQL 16-alpine]<br/>6 tablas en el volumen datos-db")]:::cont
     carga_datos["<b>carga-datos</b><br/>[Contenedor: Python 3.12 + psycopg]<br/>restart no: crea tablas y carga<br/>los CSV tratados una vez"]:::cont
   end
-  usuario -->|"HTTP :8080<br/>GET / y /api/decision/..."| gateway
-  core -->|"JSON/HTTP :8080<br/>POST /api/decision/evaluar"| gateway
+  usuario -->|"HTTPS :443<br/>GET / y /api/decision/..."| caddy
+  core -->|"HTTPS :443<br/>POST /api/decision/evaluar"| caddy
+  caddy -->|"HTTP :8080<br/>todo lo que llega"| gateway
   gateway -->|"HTTP :80 · GET /"| front
   gateway -->|"JSON/HTTP :8000<br/>/api/decision/*"| dominio
-  dominio -->|"JSON/HTTP :8080<br/>POST /api/ia/predict<br/>X-API-Key · tope 100 ms"| gateway
+  dominio -->|"JSON/HTTP :8080<br/>POST /api/ia/predict<br/>X-API-Key · tope IA_TIMEOUT_MS"| gateway
   gateway -->|"JSON/HTTP :8000 · /api/ia/*<br/>round robin entre réplicas"| ia
+  ia -->|"HTTPS · invoke_endpoint<br/>rol de la EC2, sin claves"| sm
   dominio -->|"SQL :5432<br/>consultas + INSERT"| postgres
   carga_datos -->|"SQL :5432<br/>ON CONFLICT DO NOTHING"| postgres
   style randuin fill:#ffffff,stroke:#8A8A8A,stroke-dasharray:5 5
