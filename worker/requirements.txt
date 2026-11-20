@@ -1,0 +1,3 @@
+# Dependencias de la IMAGEN del worker (runtime): httpx llama a la API de NVIDIA y al dominio; pika habla con RabbitMQ.
+httpx==0.28.1
+pika==1.3.2
