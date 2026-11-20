@@ -94,6 +94,20 @@ CREATE TABLE IF NOT EXISTS predicciones (
 );
 CREATE INDEX IF NOT EXISTS ix_predicciones_usuario ON predicciones (usuario_id, fecha_transaccion);
 
+-- EP3: el resumen en lenguaje comun que redacta el LLM para el analista (solo decisiones "revisar" o "bloquear").
+-- Lo pide el dominio por la cola y el worker se lo devuelve; el dominio es el unico que escribe aqui.
+-- Cada columna lleva ADD COLUMN IF NOT EXISTS: asi esta migracion tambien sirve para una base que ya existia (la de la EC2)
+-- y correr la carga dos veces no rompe nada.
+--   llm_estado: no_aplica (aprobada: no lleva resumen), pendiente (en la cola), listo (llego el texto) o degradado
+--   (el LLM no respondio o la cola no estaba: la decision NO cambia, solo falta el texto).
+ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS llm_estado         text NOT NULL DEFAULT 'no_aplica';
+ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS llm_texto          text;
+ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS llm_motivo         text;          -- por que quedo degradado
+ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS llm_latencia_ms    integer;
+ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS llm_actualizado_en timestamptz;
+-- La cola de revision (RF5) solo mira lo que no se aprobo.
+CREATE INDEX IF NOT EXISTS ix_predicciones_revision ON predicciones (decision, creado_en) WHERE decision <> 'aprobar';
+
 -- Umbrales iniciales, solo si la tabla esta vacia.
 INSERT INTO umbrales (umbral_revisar, umbral_bloquear, autorizado_por, motivo)
 SELECT 0.30, 0.70, 'Gerencia de Riesgo', 'umbrales iniciales de Riesgo'
