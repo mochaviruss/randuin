@@ -34,7 +34,7 @@ def test_compose_sin_build_ni_puertos_extra():
     assert sorted(publicados) == ["443:443", "80:80"], f"solo el 80 y el 443 estan abiertos, no {publicados}"
     assert re.search(r"^  caddy:\s*\n(?:.*\n)*?    ports:", texto, flags=re.M), "los puertos son de caddy"
     for imagen in re.findall(r"^\s+image:\s*(\S+)", texto, flags=re.M):
-        assert (imagen.endswith(":${TAG:-ep3}") or imagen.startswith(("postgres:", "caddy:"))), \
+        assert (imagen.endswith(":${TAG:-ep3}") or imagen.startswith(("postgres:", "caddy:", "rabbitmq:"))), \
             f"imagen propia sin el tag ep3: {imagen}"
 
 

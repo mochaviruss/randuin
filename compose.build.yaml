@@ -12,4 +12,5 @@ services:
   front:       { build: ./front }
   dominio:     { build: ./dominio }
   ia:          { build: ./servicio-ia }
+  worker:      { build: ./worker }
   carga-datos: { build: ./carga-datos }
