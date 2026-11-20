@@ -117,6 +117,7 @@ flowchart LR
   usuario(["<b>Analista / Gerencia de Riesgo</b><br/>[Persona] usa el front<br/>desde el navegador"]):::persona
   core["<b>Core de Pagos</b><br/>[Sistema externo]<br/>en producción"]:::ext
   sm{{"<b>Amazon SageMaker</b><br/>[Sistema externo · AWS]<br/>endpoint serverless randuin-fraude:<br/>la red 64-32 con TensorFlow Serving"}}:::ext
+  nv{{"<b>API de NVIDIA</b><br/>[Sistema externo]<br/>LLM compatible con OpenAI:<br/>el modelo que fija el docente"}}:::ext
   subgraph randuin["Randuin · docker compose en una EC2 t3.medium (us-east-1) · red interna"]
     caddy["<b>caddy</b><br/>[Contenedor: Caddy 2-alpine]<br/>únicas puertas publicadas (80 y 443);<br/>HTTPS con Let's Encrypt sobre sslip.io"]:::cont
     gateway["<b>gateway</b><br/>[Contenedor: Node 22-alpine]<br/>enruta, sin puerto publicado;<br/>API key en /api/ia"]:::cont
@@ -124,6 +125,8 @@ flowchart LR
     dominio["<b>dominio</b><br/>[Contenedor: Python 3.12 + FastAPI]<br/>API de Decisión: lista negra, umbrales,<br/>reserva; único que usa la base"]:::cont
     ia["<b>ia</b> · 2 réplicas<br/>[Contenedor: FastAPI + boto3]<br/>invoca el endpoint de SageMaker;<br/>score, 3 razones y versión; sin estado"]:::cont
     postgres[("<b>postgres</b><br/>[Contenedor: PostgreSQL 16-alpine]<br/>6 tablas en el volumen datos-db")]:::cont
+    rabbitmq[("<b>rabbitmq</b><br/>[Contenedor: RabbitMQ 3.13-alpine]<br/>cola «llm» durable y «llm.fallidos»;<br/>el LLM nunca está en la predicción")]:::cont
+    worker["<b>worker</b><br/>[Contenedor: Python 3.12 + httpx + pika]<br/>redacta el resumen con el LLM:<br/>reintentos, tope de espera y modo degradado"]:::cont
     carga_datos["<b>carga-datos</b><br/>[Contenedor: Python 3.12 + psycopg]<br/>restart no: crea tablas y carga<br/>los CSV tratados una vez"]:::cont
   end
   usuario -->|"HTTPS :443<br/>GET / y /api/decision/..."| caddy
@@ -134,6 +137,10 @@ flowchart LR
   dominio -->|"JSON/HTTP :8080<br/>POST /api/ia/predict<br/>X-API-Key · tope IA_TIMEOUT_MS"| gateway
   gateway -->|"JSON/HTTP :8000 · /api/ia/*<br/>round robin entre réplicas"| ia
   ia -->|"HTTPS · invoke_endpoint<br/>rol de la EC2, sin claves"| sm
+  dominio -->|"AMQP :5672<br/>publica el pedido del resumen<br/>(decisión revisar o bloquear)"| rabbitmq
+  rabbitmq -->|"AMQP :5672<br/>entrega de a un mensaje"| worker
+  worker -->|"HTTPS · /chat/completions<br/>anonimizado, tope de espera,<br/>reintentos ante el 429"| nv
+  worker -->|"HTTP :8000 · PUT<br/>/interno/predicciones/{id}/llm"| dominio
   dominio -->|"SQL :5432<br/>consultas + INSERT"| postgres
   carga_datos -->|"SQL :5432<br/>ON CONFLICT DO NOTHING"| postgres
   style randuin fill:#ffffff,stroke:#8A8A8A,stroke-dasharray:5 5

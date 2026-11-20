@@ -50,6 +50,9 @@ services:
     image: ghcr.io/mochaviruss/gateway:${TAG:-ep3}
     environment:
       API_KEY: ${API_KEY:?Falta API_KEY, copia .env.example a .env y completalo}
+      # Peticiones por minuto y por cliente a /api/*; pasado el limite, 429. Para la prueba de carga se sube (si no, se mediria el
+      # limite del gateway y no el del sistema) y para demostrar el 429 se baja. Se cambia en el .env y: docker compose up -d gateway
+      LIMITE_POR_MINUTO: ${LIMITE_POR_MINUTO:-120}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
       interval: 10s
@@ -84,6 +87,9 @@ services:
       # el dominio responda. Con SageMaker serverless la invocacion tarda ~40 ms en caliente (p95 ~105 ms medido) y ~6 s en
       # frio, asi que una parte de las decisiones saldra por la reserva: se mide en la prueba de carga y se informa.
       IA_TIMEOUT_MS: ${IA_TIMEOUT_MS:-100}
+      # Para publicar el pedido del resumen del LLM. El dominio NO depende de la cola para arrancar ni para decidir: si no
+      # puede publicar, la prediccion responde igual y el resumen queda "degradado".
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-randuin}:${RABBITMQ_PASSWORD:?Falta RABBITMQ_PASSWORD, copia .env.example a .env y completalo}@rabbitmq:5672/%2F
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,6 +143,58 @@ services:
     mem_limit: 192m
     restart: unless-stopped
 
+  # Cola de mensajes (EP3). El dominio publica aqui el pedido del resumen del LLM y el worker lo consume: el LLM NUNCA esta
+  # en el camino de la prediccion. Sin puerto publicado. El usuario "guest" de RabbitMQ solo acepta conexiones locales, por
+  # eso se define uno propio. Los mensajes son durables: sobreviven a un reinicio (volumen datos-cola).
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-randuin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Falta RABBITMQ_PASSWORD, copia .env.example a .env y completalo}
+    volumes:
+      - datos-cola:/var/lib/rabbitmq
+    healthcheck:
+      # su-exec rabbitmq: el sondeo corre como el usuario del servidor, NO como root. Un healthcheck que corre como root puede llegar
+      # antes de que el servidor cree su cookie de Erlang: root la crea con sus permisos y el servidor, que corre como "rabbitmq", ya no
+      # puede leerla y se cae con "eacces" (reproducido y arreglado en las pruebas de G2).
+      test: ["CMD", "su-exec", "rabbitmq", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+    cpus: 0.5
+    mem_limit: 384m
+    restart: unless-stopped
+
+  # Worker del LLM: saca un pedido de la cola, llama a la API de NVIDIA (con tiempo maximo, reintentos con espera creciente
+  # ante el 429 y modo degradado) y entrega el texto al dominio. Sin clave de NVIDIA el sistema igual predice: el resumen
+  # sale "degradado". La clave y el modelo llegan por el .env del servidor, nunca por el repositorio ni por la imagen.
+  worker:
+    image: ghcr.io/mochaviruss/worker:${TAG:-ep3}
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-randuin}:${RABBITMQ_PASSWORD:?Falta RABBITMQ_PASSWORD, copia .env.example a .env y completalo}@rabbitmq:5672/%2F
+      URL_DOMINIO: http://dominio:8000
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_MODEL: ${NVIDIA_MODEL:-}
+      NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      NVIDIA_TIMEOUT: ${NVIDIA_TIMEOUT:-20}
+      NVIDIA_INTENTOS: ${NVIDIA_INTENTOS:-4}
+      LLM_MIN_INTERVALO_S: ${LLM_MIN_INTERVALO_S:-1.6}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      dominio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/worker.vivo') < 60 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    cpus: 0.25
+    mem_limit: 96m
+    restart: unless-stopped
+
   # Carga de datos: corre UNA vez (crea las tablas, inserta los CSV tratados sin duplicar) y termina con codigo 0.
   # No lleva healthcheck porque no queda corriendo: su senal es "terminado bien" (service_completed_successfully).
   carga-datos:
@@ -152,5 +210,6 @@ services:
 
 volumes:
   datos-db:
+  datos-cola:
   caddy-data:
   caddy-config:
