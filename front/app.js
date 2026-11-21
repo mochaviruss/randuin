@@ -28,7 +28,7 @@ function infoDecision(decision) {
 // Un mensaje claro para cada error que puede devolver el sistema. `datos` es el cuerpo JSON (o null).
 function mensajeError(estado, datos, reintentarEn) {
   if (estado === 0) return { titulo: 'No hay conexión con el servidor.', detalles: [] };
-  if (estado === 401) return { titulo: 'La clave no es válida o falta. Revísala arriba.', detalles: [] };
+  if (estado === 401) return { titulo: 'La clave no es válida o venció. Vuelve a ingresarla.', detalles: [] };
   if (estado === 422) {
     const detalles = Array.isArray(datos && datos.detail)
       ? datos.detail.map(e => `${(e.loc || []).filter(x => x !== 'body').join('.') || 'entrada'}: ${e.msg}`)
@@ -132,6 +132,8 @@ if (typeof document !== 'undefined') {
     }
     let datos = null;
     try { datos = await r.json(); } catch { /* sin cuerpo JSON */ }
+    // Con la sesion abierta, un 401 significa que la clave dejo de servir (cambio en el servidor): se vuelve a la pantalla de entrada.
+    if (conClave && r.status === 401 && document.body.classList.contains('con-sesion')) cerrarSesion('La clave ya no es válida. Ingrésala de nuevo.');
     return { ok: r.ok, estado: r.status, datos, reintentarEn: r.headers.get('retry-after') };
   }
 
@@ -160,29 +162,37 @@ if (typeof document !== 'undefined') {
     $('version-modelo').textContent = version ? `Modelo en producción: ${version}` : '';
   }
 
-  // ------------------------------------------------------------------------------------------------------------- clave
-  async function verificarClave() {
+  // ------------------------------------------------------------------------------------------------------ entrada y sesion
+  // Sesion = la clave ya fue validada por el servidor. Sin sesion solo se ve la pantalla de entrada; con sesion, la aplicacion.
+  function mostrarSesion(activa, mensaje, clase) {
+    document.body.classList.toggle('con-sesion', activa);
+    $('entrada').hidden = activa;
+    $('aplicacion').hidden = !activa;
+    $('salir').hidden = !activa;
     const estado = $('estado-clave');
-    if (!hayClave()) {
-      $('acceso').classList.remove('lista');
-      $('cambiar-clave').hidden = true;
-      estado.className = 'estado-clave';
-      estado.textContent = 'Sin clave: solo puedes ver el estado de las piezas.';
-      return false;
-    }
+    estado.className = `estado-clave${clase ? ` ${clase}` : ''}`;
+    estado.textContent = mensaje || '';
+  }
+
+  // Le pregunta al servidor si la clave sirve (una ruta protegida y barata). Una clave que no sirve no se conserva.
+  async function verificarClave() {
+    if (!hayClave()) { mostrarSesion(false, ''); return false; }
     const r = await api('/api/metricas?horas=1');
-    if (r.ok) {
-      estado.className = 'estado-clave ok';
-      estado.textContent = 'Clave válida ✔ (queda solo en esta pestaña).';
-      $('acceso').classList.add('lista');
-      $('cambiar-clave').hidden = false;
-      return true;
-    }
-    $('acceso').classList.remove('lista');
-    $('cambiar-clave').hidden = true;
-    estado.className = 'estado-clave error';
-    estado.textContent = mensajeError(r.estado, r.datos, r.reintentarEn).titulo;
+    if (r.ok) { mostrarSesion(true); return true; }
+    guardarClave('');
+    mostrarSesion(false, mensajeError(r.estado, r.datos, r.reintentarEn).titulo, 'error');
     return false;
+  }
+
+  function cerrarSesion(mensaje) {
+    guardarClave('');
+    ejemplos = {};
+    sondeo += 1;                       // corta la espera de un resumen que estuviera en curso
+    $('resultado').replaceChildren(h('p', { class: 'vacio' }, 'Evalúa una transacción para ver la decisión, sus razones y la versión del modelo.'));
+    $('cola').replaceChildren(h('p', { class: 'vacio' }, 'Ingresa la clave para ver la cola.'));
+    $('dashboard').replaceChildren(h('p', { class: 'vacio' }, 'Ingresa la clave para ver las métricas.'));
+    mostrarSesion(false, mensaje || '', mensaje ? 'error' : '');
+    $('clave').focus();
   }
 
   let ejemplos = {};
@@ -193,23 +203,28 @@ if (typeof document !== 'undefined') {
 
   $('form-clave').addEventListener('submit', async evento => {
     evento.preventDefault();
-    guardarClave($('clave').value.trim());
+    const valor = $('clave').value.trim();
+    if (!valor) { mostrarSesion(false, 'Escribe la clave de la API.', 'error'); return; }
+    const boton = $('entrar');
+    boton.disabled = true;
+    boton.textContent = 'Comprobando…';
+    guardarClave(valor);
     $('clave').value = '';
-    if (await verificarClave()) {
+    const ok = await verificarClave();
+    boton.disabled = false;
+    boton.textContent = 'Entrar';
+    if (ok) {
       await cargarEjemplos();
       cargarPanelActivo();
     }
   });
-  $('cambiar-clave').addEventListener('click', () => {
-    $('acceso').classList.remove('lista');
-    $('clave').focus();
+  $('ver-clave').addEventListener('click', () => {
+    const visible = $('clave').type === 'password';
+    $('clave').type = visible ? 'text' : 'password';
+    $('ver-clave').textContent = visible ? 'Ocultar' : 'Mostrar';
+    $('ver-clave').setAttribute('aria-pressed', String(visible));
   });
-  $('borrar-clave').addEventListener('click', () => {
-    guardarClave('');
-    ejemplos = {};
-    verificarClave();
-    cargarPanelActivo();
-  });
+  $('salir').addEventListener('click', () => cerrarSesion());
 
   // ------------------------------------------------------------------------------------------------------------- pestañas
   function mostrarPestana(nombre) {
@@ -320,7 +335,7 @@ if (typeof document !== 'undefined') {
   formulario.addEventListener('submit', async evento => {
     evento.preventDefault();
     const boton = $('evaluar');
-    if (!hayClave()) { $('resultado').replaceChildren(h('div', { class: 'error-caja', role: 'alert' }, 'Ingresa primero la clave de la API (arriba).')); return; }
+    if (!hayClave()) { $('resultado').replaceChildren(h('div', { class: 'error-caja', role: 'alert' }, 'Ingresa primero la clave de la API.')); return; }
     boton.disabled = true;
     boton.textContent = 'Evaluando…';
     sondeo += 1;
@@ -411,5 +426,8 @@ if (typeof document !== 'undefined') {
   setInterval(() => { if (!document.hidden && hayClave()) cargarPanelActivo(); }, 20000);
   const inicial = location.hash.replace('#', '');
   if (['evaluar', 'revision', 'dashboard'].includes(inicial)) mostrarPestana(inicial);
-  if (hayClave()) verificarClave().then(ok => { if (ok) { cargarEjemplos(); cargarPanelActivo(); } });
+  if (hayClave()) {
+    $('estado-clave').textContent = 'Comprobando la clave…';
+    verificarClave().then(ok => { if (ok) { cargarEjemplos(); cargarPanelActivo(); } });
+  }
 }
