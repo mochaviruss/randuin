@@ -18,29 +18,28 @@
       <h1>Randuin</h1>
       <p class="sub">Decisión de fraude · Kipu Pagos</p>
     </div>
+    <button class="btn salir" type="button" id="salir" hidden>Salir</button>
   </div>
   <ul class="piezas" id="piezas" aria-label="Estado de cada pieza del sistema"><li class="pieza nulo">consultando…</li></ul>
 </header>
 
 <main>
-  <section class="tarjeta acceso" id="acceso" aria-labelledby="t-acceso">
-    <h2 id="t-acceso">Clave de la API</h2>
+  <!-- Pantalla de entrada: hasta que la clave sea valida (la comprueba el servidor), la aplicacion no se muestra. -->
+  <section class="tarjeta entrada" id="entrada" aria-labelledby="t-entrada">
+    <h2 id="t-entrada">Ingresar</h2>
+    <p class="nota">Randuin pide una clave de API en cada petición (header <code>X-API-Key</code>). Pégala para entrar: queda solo en esta pestaña y se borra al salir.</p>
     <form id="form-clave" autocomplete="off">
-      <label class="campo" for="clave">Se pide en cada petición (header <code>X-API-Key</code>)</label>
-      <div class="con-boton">
+      <label class="campo" for="clave">Clave de la API</label>
+      <div class="campo-clave">
         <input id="clave" name="clave" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="pega aquí la clave">
-        <div class="botones-clave">
-          <button class="btn principal" type="submit">Usar</button>
-          <button class="btn secundario" type="button" id="borrar-clave">Borrar</button>
-        </div>
+        <button class="btn secundario" type="button" id="ver-clave" aria-pressed="false">Mostrar</button>
       </div>
-      <div class="linea-clave">
-        <p class="estado-clave" id="estado-clave" role="status" aria-live="polite">Sin clave: solo puedes ver el estado de las piezas.</p>
-        <button class="btn secundario chico" type="button" id="cambiar-clave" hidden>Cambiar</button>
-      </div>
+      <button class="btn principal grande" type="submit" id="entrar">Entrar</button>
+      <p class="estado-clave" id="estado-clave" role="status" aria-live="polite"></p>
     </form>
   </section>
 
+  <div class="aplicacion" id="aplicacion" hidden>
   <nav class="pestanas" role="tablist" aria-label="Secciones">
     <button class="pestana" role="tab" id="tab-evaluar" data-panel="evaluar" aria-selected="true" aria-controls="panel-evaluar"><span class="ic" aria-hidden="true">✎</span>Evaluar</button>
     <button class="pestana" role="tab" id="tab-revision" data-panel="revision" aria-selected="false" aria-controls="panel-revision"><span class="ic" aria-hidden="true">☰</span>Revisión</button>
@@ -116,6 +115,7 @@
       <div id="dashboard"><p class="vacio">Ingresa la clave para ver las métricas.</p></div>
     </div>
   </section>
+  </div>
 </main>
 
 <footer class="pie">

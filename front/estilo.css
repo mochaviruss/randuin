@@ -16,7 +16,9 @@
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--fondo); color: var(--texto); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-       padding-bottom: calc(var(--alto-tab) + env(safe-area-inset-bottom)); }
+       padding-bottom: 0; }
+body.con-sesion { padding-bottom: calc(var(--alto-tab) + env(safe-area-inset-bottom)); }   /* lugar para las pestañas fijas de abajo */
+[hidden] { display: none !important; }   /* sin esto, un display de una clase le gana al atributo hidden */
 h1, h2, p { margin: 0; }
 h2 { font-size: 1.05rem; margin-bottom: .75rem; }
 code, pre { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: .85rem; }
@@ -27,6 +29,7 @@ code, pre { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size
 /* ------------------------------------------------------------------------------------------------------------ cabecera */
 .barra { background: var(--primario); color: #fff; padding: calc(12px + env(safe-area-inset-top)) 16px 12px; }
 .marca { display: flex; align-items: center; gap: 10px; }
+.btn.salir { margin-left: auto; min-height: 40px; padding: 4px 16px; background: transparent; color: #fff; border-color: rgba(255, 255, 255, .45); }
 .logo { font-size: 1.6rem; color: #8fb2ff; line-height: 1; }
 .barra h1 { font-size: 1.25rem; line-height: 1.2; }
 .sub { font-size: .8rem; opacity: .8; }
@@ -47,16 +50,13 @@ input, select { display: block; width: 100%; min-height: 46px; margin-top: 4px; 
                 background: var(--fondo); border: 1px solid var(--borde); border-radius: 10px; }   /* 16 px: iOS no hace zoom al enfocar */
 input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
 .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.con-boton { display: grid; grid-template-columns: 1fr; gap: 8px; }
-.con-boton input { margin-top: 0; }
-.botones-clave { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.linea-clave { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.btn.chico { min-height: 40px; padding: 4px 14px; font-size: .9rem; }
-/* Con la clave ya validada la tarjeta se encoge a una linea: no ocupa media pantalla del celular para algo que se usa una vez. */
-.acceso.lista { padding: 10px 14px; }
-.acceso.lista h2, .acceso.lista .campo, .acceso.lista .con-boton { display: none; }
-.acceso.lista .estado-clave { margin: 0; }
-.estado-clave { margin-top: 8px; flex: 1; font-size: .875rem; color: var(--suave); }
+/* Pantalla de entrada: una tarjeta centrada; la aplicacion (pestañas y paneles) aparece recien con la clave validada. */
+.entrada { width: 100%; max-width: 440px; justify-self: center; margin-top: 6vh; }
+.entrada h2 { font-size: 1.25rem; }
+.campo-clave { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 12px; }
+.campo-clave input { margin-top: 0; }
+.aplicacion { display: grid; gap: 14px; }
+.estado-clave { margin-top: 10px; min-height: 1.4em; font-size: .875rem; color: var(--suave); }
 .estado-clave.ok { color: var(--ok); } .estado-clave.error { color: var(--peligro); }
 .btn { min-height: 46px; padding: 9px 16px; font: inherit; font-weight: 700; border-radius: 10px; border: 1px solid transparent; cursor: pointer; }
 .btn.principal { background: var(--primario); color: var(--primario-t); }
@@ -143,12 +143,11 @@ input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-v
 
 /* ------------------------------------------------------------------------------- pantallas medianas y grandes (≥ 720 px) */
 @media (min-width: 720px) {
-  body { padding-bottom: 0; }
+  body.con-sesion { padding-bottom: 0; }
   .barra { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; }
   .piezas { margin: 0; justify-content: flex-end; }
   main { padding: 20px; gap: 16px; }
-  .con-boton { grid-template-columns: 1fr auto; }
-  .botones-clave { grid-template-columns: auto auto; }
+  .aplicacion { gap: 16px; }
   .pestanas { position: static; border: 0; background: none; display: flex; gap: 8px; padding: 0; }
   .pestana { flex-direction: row; gap: 8px; min-height: 46px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--borde); background: var(--tarjeta); font-size: .95rem; }
   .pestana[aria-selected="true"] { background: var(--primario); color: #fff; border-color: var(--primario); box-shadow: none; }

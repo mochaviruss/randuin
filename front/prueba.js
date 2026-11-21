@@ -26,6 +26,15 @@ caso('manda la clave en el header X-API-Key', js.includes("'X-API-Key'"));
 caso('todo pasa por el gateway: sin localhost ni puertos internos', !/localhost|:8000|:5432|:5672/.test(html + js + css));
 caso('no depende de nada de afuera: sin CDN ni http(s):// en HTML, CSS ni JS', !/https?:\/\//.test(html + js + css));
 caso('tiene las tres secciones: evaluar, revision y dashboard', ['panel-evaluar', 'panel-revision', 'panel-dashboard'].every(id => html.includes(`id="${id}"`)));
+// ------------------------------------------------------------------------------------------------------------ entrada con clave
+caso('hay una pantalla de entrada con la clave en un campo oculto (type="password")', html.includes('id="entrada"') && /<input id="clave"[^>]*type="password"/.test(html));
+caso('la aplicacion empieza oculta: no se muestra hasta que el servidor valide la clave', /<div class="aplicacion" id="aplicacion" hidden>/.test(html) && /id="salir"[^>]*hidden/.test(html));
+caso('el atributo hidden se respeta aunque una clase defina display', css.includes('[hidden] { display: none !important; }'));
+caso('la clave se valida contra una ruta protegida antes de abrir la sesion', /async function verificarClave\(\) \{[\s\S]*?api\('\/api\/metricas\?horas=1'\)[\s\S]*?mostrarSesion\(true\)/.test(js));
+caso('una clave que no sirve no se conserva', /guardarClave\(''\);\s*mostrarSesion\(false, mensajeError/.test(js));
+caso('"Salir" borra la clave y vuelve a la entrada', js.includes("$('salir').addEventListener('click', () => cerrarSesion())") && /function cerrarSesion[\s\S]*?guardarClave\(''\)/.test(js));
+caso('un 401 con la sesion abierta devuelve a la entrada', /r\.status === 401 && document\.body\.classList\.contains\('con-sesion'\)\) cerrarSesion\(/.test(js));
+caso('el campo de la clave puede mostrarse y ocultarse (se escribe en un celular)', html.includes('id="ver-clave"') && js.includes("$('clave').type = visible ? 'text' : 'password'"));
 caso('explica que el LLM no decide', html.includes('LLM</b> solo redacta') || html.includes('solo redacta'));
 
 // ----------------------------------------------------------------------------------------------------------------- seguridad
