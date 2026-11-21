@@ -44,7 +44,7 @@ jobs:
         with:
           node-version: "22"
       - name: Dependencias
-        run: pip install -r datos/requirements.txt -r carga-datos/requirements.txt -r dominio/requirements.txt
+        run: pip install -r datos/requirements.txt -r carga-datos/requirements.txt -r dominio/requirements.txt -r worker/requirements-dev.txt
       - name: Tratamiento de datos (deja las tablas tratadas en carga-datos/tratados)
         run: python datos/preparar.py
       - name: "Test del tratamiento: sin duplicados ni nulos en columnas clave"
@@ -53,6 +53,8 @@ jobs:
         run: python -m pytest -q carga-datos/tests
       - name: "Test del dominio: reglas, lista negra, reserva y validaciones"
         run: python -m pytest -q dominio/tests
+      - name: "Test del worker: reintentos ante el 429, modo degradado y anonimizacion antes de NVIDIA"
+        run: python -m pytest -q worker/tests
       - name: "Test del gateway: rutas y API key"
         run: node gateway/prueba.js
       - name: "Test del front: formulario y rutas por el gateway"
@@ -72,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        servicio: [gateway, front, dominio, carga-datos]
+        servicio: [gateway, front, dominio, worker, carga-datos]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

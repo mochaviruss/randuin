@@ -2,150 +2,126 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Randuin · Kipu Pagos</title>
-<!-- Front de Randuin: una pagina HTML con JavaScript, sin dependencias.
-     Todo lo pide con rutas relativas (/api/decision/...), asi pasa siempre por el gateway. -->
-<style>
-  body { font-family: system-ui, "Segoe UI", Arial, sans-serif; margin: 0; background: #f4f5f7; color: #1d2330; }
-  header { background: #1f3b73; color: #fff; padding: 14px 24px; }
-  header h1 { margin: 0; font-size: 20px; }
-  header small { opacity: .8; }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
-  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
-  section { background: #fff; border: 1px solid #dfe2e7; border-radius: 8px; padding: 16px; }
-  h2 { font-size: 15px; margin: 0 0 12px; }
-  label { display: block; font-size: 13px; margin-bottom: 8px; }
-  input, select { width: 100%; padding: 6px; margin-top: 3px; box-sizing: border-box; }
-  button { padding: 7px 12px; margin: 4px 4px 4px 0; cursor: pointer; }
-  .principal { background: #1f3b73; color: #fff; border: none; border-radius: 4px; font-weight: bold; }
-  .decision { font-size: 26px; font-weight: bold; text-transform: uppercase; padding: 6px 14px; border-radius: 6px; display: inline-block; }
-  .aprobar { background: #e3f4ea; color: #16834a; } .revisar { background: #fdf1dc; color: #a86400; }
-  .bloquear { background: #fbe4e5; color: #c0262d; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 5px; border-bottom: 1px solid #eee; }
-  .ancho { grid-column: 1 / -1; }
-  .error { color: #c0262d; }
-  .gris { color: #5d6675; font-size: 13px; }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3b73">
+<title>Randuin · decisión de fraude</title>
+<!-- Front de Randuin (EP3): HTML + CSS + JavaScript sin dependencias ni CDN, pensado primero para el celular.
+     Todo lo pide con rutas relativas (/api/...), así pasa siempre por el gateway. La clave de la API se escribe en la página y
+     queda solo en esta pestaña (sessionStorage): no viaja a ningún lado salvo en el header X-API-Key de cada petición. -->
+<link rel="stylesheet" href="estilo.css">
 </head>
 <body>
-<header>
-  <h1>Randuin <small>· detección de fraude · Kipu Pagos</small></h1>
-  <small id="estado">consultando servicios…</small>
+<header class="barra">
+  <div class="marca">
+    <span class="logo" aria-hidden="true">◆</span>
+    <div>
+      <h1>Randuin</h1>
+      <p class="sub">Decisión de fraude · Kipu Pagos</p>
+    </div>
+  </div>
+  <ul class="piezas" id="piezas" aria-label="Estado de cada pieza del sistema"><li class="pieza nulo">consultando…</li></ul>
 </header>
 
 <main>
-  <section>
-    <h2>Evaluar una transacción</h2>
-    <div>
-      <button type="button" onclick="ejemplo('normal')">Compra normal</button>
-      <button type="button" onclick="ejemplo('sospechosa')">Sospechosa</button>
-      <button type="button" onclick="ejemplo('lista_negra')">En lista negra</button>
-    </div>
-    <form id="formulario">
-      <label>Usuario <input name="usuario_id" required></label>
-      <label>Dispositivo <input name="dispositivo_id" placeholder="vacío = sin dispositivo"></label>
-      <label>Comercio <input name="comercio_id"></label>
-      <label>Monto <input name="monto" type="number" step="0.01" min="0.01" required></label>
-      <label>Moneda <select name="moneda"><option>CLP</option><option>USD</option></select></label>
-      <label>Canal <select name="canal"><option>app</option><option>web</option><option>pos</option><option>api</option></select></label>
-      <label>País (código de 2 letras) <input name="pais_transaccion" value="CL" maxlength="2"></label>
-      <label>Fecha y hora (vacío = ahora) <input name="fecha_hora" type="datetime-local"></label>
-      <button class="principal" type="submit">Evaluar</button>
+  <section class="tarjeta acceso" id="acceso" aria-labelledby="t-acceso">
+    <h2 id="t-acceso">Clave de la API</h2>
+    <form id="form-clave" autocomplete="off">
+      <label class="campo" for="clave">Se pide en cada petición (header <code>X-API-Key</code>)</label>
+      <div class="con-boton">
+        <input id="clave" name="clave" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="pega aquí la clave">
+        <div class="botones-clave">
+          <button class="btn principal" type="submit">Usar</button>
+          <button class="btn secundario" type="button" id="borrar-clave">Borrar</button>
+        </div>
+      </div>
+      <div class="linea-clave">
+        <p class="estado-clave" id="estado-clave" role="status" aria-live="polite">Sin clave: solo puedes ver el estado de las piezas.</p>
+        <button class="btn secundario chico" type="button" id="cambiar-clave" hidden>Cambiar</button>
+      </div>
     </form>
   </section>
 
-  <section>
-    <h2>Resultado</h2>
-    <div id="resultado" class="gris">Todavía no se evalúa ninguna transacción.</div>
+  <nav class="pestanas" role="tablist" aria-label="Secciones">
+    <button class="pestana" role="tab" id="tab-evaluar" data-panel="evaluar" aria-selected="true" aria-controls="panel-evaluar"><span class="ic" aria-hidden="true">✎</span>Evaluar</button>
+    <button class="pestana" role="tab" id="tab-revision" data-panel="revision" aria-selected="false" aria-controls="panel-revision"><span class="ic" aria-hidden="true">☰</span>Revisión</button>
+    <button class="pestana" role="tab" id="tab-dashboard" data-panel="dashboard" aria-selected="false" aria-controls="panel-dashboard"><span class="ic" aria-hidden="true">▤</span>Dashboard</button>
+  </nav>
+
+  <!-- ------------------------------------------------------------------------------------------ evaluar una transacción -->
+  <section class="panel" id="panel-evaluar" role="tabpanel" aria-labelledby="tab-evaluar">
+    <div class="dos-columnas">
+      <div class="tarjeta">
+        <h2>Evaluar una transacción</h2>
+        <div class="ejemplos" role="group" aria-label="Cargar un ejemplo">
+          <button type="button" class="chip" data-ejemplo="normal">Compra normal</button>
+          <button type="button" class="chip" data-ejemplo="sospechosa">Sospechosa</button>
+          <button type="button" class="chip" data-ejemplo="lista_negra">En lista negra</button>
+        </div>
+        <form id="formulario" novalidate>
+          <label class="campo">Usuario<input name="usuario_id" required autocomplete="off" autocapitalize="characters" placeholder="ej.: KP303245"></label>
+          <label class="campo">Dispositivo <span class="opc">(opcional)</span><input name="dispositivo_id" autocomplete="off" placeholder="vacío = sin dispositivo"></label>
+          <label class="campo">Comercio <span class="opc">(opcional)</span><input name="comercio_id" autocomplete="off" placeholder="ej.: CM40413"></label>
+          <div class="fila">
+            <label class="campo">Monto<input name="monto" type="number" inputmode="decimal" step="0.01" min="0.01" required placeholder="ej.: 12000"></label>
+            <label class="campo">Moneda<select name="moneda"><option>CLP</option><option>USD</option></select></label>
+          </div>
+          <div class="fila">
+            <label class="campo">Canal<select name="canal"><option>app</option><option>web</option><option>pos</option><option>api</option></select></label>
+            <label class="campo">País<input name="pais_transaccion" value="CL" maxlength="2" autocomplete="off" autocapitalize="characters"></label>
+          </div>
+          <label class="campo">Fecha y hora <span class="opc">(vacío = ahora)</span><input name="fecha_hora" type="datetime-local"></label>
+          <button class="btn principal grande" type="submit" id="evaluar">Evaluar</button>
+        </form>
+        <details class="curl">
+          <summary>Ver como curl</summary>
+          <p class="nota">La misma petición desde una terminal. Reemplaza <code>TU_CLAVE</code>; sin el header, responde 401.</p>
+          <pre><code id="curl"></code></pre>
+          <button type="button" class="btn secundario" id="copiar-curl">Copiar</button>
+        </details>
+      </div>
+
+      <div class="tarjeta resultado-caja" aria-live="polite">
+        <h2>Resultado</h2>
+        <div id="resultado"><p class="vacio">Evalúa una transacción para ver la decisión, sus razones y la versión del modelo.</p></div>
+      </div>
+    </div>
   </section>
 
-  <section class="ancho">
-    <h2>Últimas decisiones (guardadas en la base)</h2>
-    <table>
-      <thead><tr><th>Transacción</th><th>Fecha</th><th>Usuario</th><th>Monto USD</th><th>Decisión</th>
-        <th>Origen</th><th>Probabilidad</th><th>Modelo</th><th>Réplica de IA</th></tr></thead>
-      <tbody id="historial"></tbody>
-    </table>
+  <!-- ------------------------------------------------------------------------------------------------ cola de revisión -->
+  <section class="panel" id="panel-revision" role="tabpanel" aria-labelledby="tab-revision" hidden>
+    <div class="tarjeta">
+      <div class="cabecera-panel">
+        <h2>Cola de revisión</h2>
+        <button type="button" class="btn secundario" id="actualizar-revision">Actualizar</button>
+      </div>
+      <p class="nota">Lo marcado como <b>revisar</b> o <b>bloquear</b>, de mayor a menor <b>prioridad</b> (riesgo × monto). El resumen lo redacta un LLM después de la decisión.</p>
+      <div class="ejemplos" role="group" aria-label="Filtrar por decisión">
+        <button type="button" class="chip activo" data-filtro="todas">Todas</button>
+        <button type="button" class="chip" data-filtro="revisar">Revisar</button>
+        <button type="button" class="chip" data-filtro="bloquear">Bloquear</button>
+      </div>
+      <div id="cola" class="cola"><p class="vacio">Ingresa la clave para ver la cola.</p></div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------------------------------------------- dashboard -->
+  <section class="panel" id="panel-dashboard" role="tabpanel" aria-labelledby="tab-dashboard" hidden>
+    <div class="tarjeta">
+      <div class="cabecera-panel">
+        <h2>Dashboard</h2>
+        <label class="campo ventana">Ventana
+          <select id="ventana"><option value="1">última hora</option><option value="24" selected>últimas 24 h</option><option value="168">últimos 7 días</option></select>
+        </label>
+      </div>
+      <div id="dashboard"><p class="vacio">Ingresa la clave para ver las métricas.</p></div>
+    </div>
   </section>
 </main>
 
-<script>
-const formulario = document.getElementById('formulario');
-let ejemplos = {};
-
-async function pedir(ruta, opciones) {
-  const r = await fetch(ruta, opciones);
-  const cuerpo = await r.json();
-  if (!r.ok) throw new Error(cuerpo.detail ? JSON.stringify(cuerpo.detail) : (cuerpo.error || r.status));
-  return cuerpo;
-}
-
-async function revisarEstado() {
-  const partes = [];
-  try { await pedir('/api/decision/health'); partes.push('dominio ✔'); } catch { partes.push('dominio ✘'); }
-  try { const ia = await pedir('/api/ia/health'); partes.push(`IA ✔ (${ia.modelo_version})`); } catch { partes.push('IA ✘'); }
-  document.getElementById('estado').textContent = partes.join(' · ');
-}
-
-async function cargarEjemplos() {
-  try { ejemplos = await pedir('/api/decision/ejemplos'); } catch { ejemplos = {}; }
-}
-
-function ejemplo(tipo) {
-  const n = ejemplos.normal || {};
-  const datos = {
-    normal: { usuario_id: n.usuario_id, dispositivo_id: n.dispositivo_id, comercio_id: n.comercio_id,
-              monto: 12000, moneda: 'CLP', canal: 'app', pais_transaccion: 'CL', fecha_hora: '' },
-    sospechosa: { usuario_id: n.usuario_id, dispositivo_id: (ejemplos.dispositivo_compartido || {}).dispositivo_id,
-                  comercio_id: n.comercio_id, monto: 180, moneda: 'USD', canal: 'web', pais_transaccion: 'NG',
-                  fecha_hora: new Date().toISOString().slice(0, 10) + 'T03:10' },
-    lista_negra: { usuario_id: n.usuario_id, dispositivo_id: (ejemplos.lista_negra || {}).dispositivo_id,
-                   comercio_id: n.comercio_id, monto: 25000, moneda: 'CLP', canal: 'app', pais_transaccion: 'CL', fecha_hora: '' },
-  }[tipo];
-  for (const [campo, valor] of Object.entries(datos)) formulario.elements[campo].value = valor ?? '';
-}
-
-formulario.addEventListener('submit', async (evento) => {
-  evento.preventDefault();
-  const datos = Object.fromEntries(new FormData(formulario));
-  datos.monto = Number(datos.monto);
-  for (const campo of ['dispositivo_id', 'comercio_id', 'fecha_hora']) if (!datos[campo]) delete datos[campo];
-  const caja = document.getElementById('resultado');
-  caja.textContent = 'Evaluando…';
-  try {
-    const r = await pedir('/api/decision/evaluar', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
-    const razones = r.razones.map(x => `<li>${x.condicion}</li>`).join('') || '<li>sin razones destacadas</li>';
-    caja.innerHTML = `
-      <div class="decision ${r.decision}">${r.decision}</div>
-      <p>Probabilidad de fraude: <b>${r.score === null ? '—' : (r.score * 100).toFixed(1) + ' %'}</b>
-         · umbrales: revisar ${r.umbrales.revisar}, bloquear ${r.umbrales.bloquear}</p>
-      <p class="gris">Origen: ${r.origen === 'reserva' ? '<b class="error">política de reserva (el modelo no respondió)</b>' : r.origen}
-         · modelo ${r.modelo_version || '—'} · réplica ${r.replica_ia || '—'} · ${r.latencia_ms} ms · ${r.transaccion_id}</p>
-      <b>Razones</b><ul>${razones}</ul>`;
-  } catch (error) {
-    caja.innerHTML = `<p class="error">No se pudo evaluar: ${error.message}</p>`;
-  }
-  cargarHistorial();
-});
-
-async function cargarHistorial() {
-  try {
-    const filas = await pedir('/api/decision/predicciones?limite=10');
-    document.getElementById('historial').innerHTML = filas.map(p => `<tr>
-      <td>${p.transaccion_id}</td><td>${new Date(p.creado_en).toLocaleString('es-CL')}</td><td>${p.usuario_id}</td>
-      <td>${p.monto_usd}</td><td><span class="${p.decision}">${p.decision}</span></td><td>${p.origen}</td>
-      <td>${p.score ?? '—'}</td><td>${p.modelo_version ?? '—'}</td><td>${p.replica_ia ?? '—'}</td></tr>`).join('');
-  } catch (error) {
-    document.getElementById('historial').innerHTML = `<tr><td colspan="9" class="error">${error.message}</td></tr>`;
-  }
-}
-
-revisarEstado();
-cargarEjemplos().then(() => ejemplo('normal'));
-cargarHistorial();
-</script>
+<footer class="pie">
+  <p>El <b>modelo</b> de SageMaker decide; el <b>LLM</b> solo redacta el resumen, después. Si el LLM falla, la decisión no cambia.</p>
+  <p id="version-modelo" class="nota"></p>
+</footer>
+<script src="app.js" defer></script>
 </body>
 </html>
