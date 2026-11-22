@@ -112,6 +112,9 @@ if (typeof document !== 'undefined') {
     return el;
   }
 
+  // replaceChildren convierte un null en el TEXTO "null" (h() ya los descarta, pero aqui se le pasan directo): se filtran antes.
+  const sinNulos = lista => lista.filter(x => x !== null && x !== undefined && x !== false);
+
   // ---- la clave: solo en esta pestaña (sessionStorage); si el navegador no la deja guardar, funciona igual mientras la pagina siga abierta
   let claveEnMemoria = '';
   const leerClave = () => { try { return sessionStorage.getItem('randuin_clave') || claveEnMemoria; } catch { return claveEnMemoria; } };
@@ -276,10 +279,10 @@ if (typeof document !== 'undefined') {
   function pintarResumen(contenedor, llm) {
     const i = infoResumen(llm);
     contenedor.className = `resumen ${i.clase}`;
-    contenedor.replaceChildren(
+    contenedor.replaceChildren(...sinNulos([
       h('h3', {}, i.clase === 'cargando' ? h('span', { class: 'giro', 'aria-hidden': 'true' }) : null, i.titulo),
       i.texto ? h('p', { class: 'texto' }, i.texto) : null,
-      llm && llm.estado === 'listo' ? h('p', { class: 'nota' }, `Redactado por un LLM a partir de las razones del modelo${llm.latencia_ms ? ` (${numero(llm.latencia_ms)} ms)` : ''}. La decisión la tomó el modelo.`) : null);
+      llm && llm.estado === 'listo' ? h('p', { class: 'nota' }, `Redactado por un LLM a partir de las razones del modelo${llm.latencia_ms ? ` (${numero(llm.latencia_ms)} ms)` : ''}. La decisión la tomó el modelo.`) : null]));
   }
 
   function pintarResultado(d) {
@@ -293,7 +296,7 @@ if (typeof document !== 'undefined') {
     });
     const dato = (etq, valor) => h('div', {}, h('dt', {}, etq), h('dd', {}, valor));
     const resumen = h('div', { id: 'resumen' });
-    $('resultado').replaceChildren(
+    $('resultado').replaceChildren(...sinNulos([
       h('div', { class: `decision ${info.clase}` }, h('span', { 'aria-hidden': 'true' }, info.icono), h('span', {}, info.texto)),
       h('p', { class: `origen${d.origen === 'reserva' ? ' alerta' : ''}` }, ORIGENES[d.origen] || d.origen),
       h('dl', { class: 'meta' },
@@ -306,7 +309,7 @@ if (typeof document !== 'undefined') {
       d.score === null || d.score === undefined ? null : h('p', { class: 'aviso-score' }, 'La probabilidad sale de una muestra con mucho más fraude que el real: sirve para ordenar casos, no como una chance literal.'),
       h('h3', { class: 'subtitulo' }, 'Por qué (de mayor a menor peso)'),
       h('ul', { class: 'razones' }, razones.length ? razones : h('li', { class: 'razon' }, 'Sin razones destacadas.')),
-      resumen);
+      resumen]));
     pintarResumen(resumen, d.llm);
   }
 

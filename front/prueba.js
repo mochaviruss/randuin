@@ -42,6 +42,9 @@ caso('explica que el LLM no decide', html.includes('LLM</b> solo redacta') || ht
 const codigoJs = js.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
 caso('nunca arma HTML con datos del servidor: sin innerHTML, outerHTML, insertAdjacentHTML, document.write ni eval',
   !/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function/.test(codigoJs));
+caso('replaceChildren nunca recibe un null directo (se mostraria la palabra "null"): los dos con condiciones pasan por sinNulos',
+  /contenedor\.replaceChildren\(\.\.\.sinNulos\(\[/.test(codigoJs) && /\$\('resultado'\)\.replaceChildren\(\.\.\.sinNulos\(\[/.test(codigoJs) &&
+  /const sinNulos = lista => lista\.filter\(x => x !== null && x !== undefined && x !== false\)/.test(codigoJs));
 caso('el detector de comentarios funciona (si app.js usara innerHTML en codigo, esta prueba lo veria)',
   /innerHTML/.test('x.innerHTML = y;'.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')));
 caso('sin scripts ni estilos incrustados en el HTML (lo exige el CSP)', !/<style/.test(html) && !/<script(?![^>]*\bsrc=)/.test(html) && !/\sstyle=/.test(html));
