@@ -1,2 +1,0 @@
-Method,Name,Error,Occurrences,First Seen,Last Seen
-POST,POST /api/predict,CatchResponseError('429 rate limiting'),5765,2026-11-21T23:36:15Z,2026-11-21T23:39:09Z
